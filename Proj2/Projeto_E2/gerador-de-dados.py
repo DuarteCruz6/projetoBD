@@ -10,7 +10,7 @@ def insert(tabela: str) -> str:
     return f"INSERT INTO {tabela} VALUES\n"
 
 def timestamp(datahora: datetime) -> str:
-    return datahora.strftime('%Y-%m-%d %H:%M:%S')
+    return f"'{datahora.strftime('%Y-%m-%d %H:%M:%S')}'"
 
 def boolean(boolean_value: bool) -> str:
     if boolean_value: return 'TRUE'
@@ -122,8 +122,8 @@ class Assento:
 
 
 class Voo:
-    sql_lista = [insert("voo (id, no_serie, hora_partida, hora_chegada, partida, chegada)")]
-    id_counter = 0
+    sql_lista = [insert("voo (no_serie, hora_partida, hora_chegada, partida, chegada)")]
+    id_counter = 1
 
     def __init__(self, aviao: Aviao, hora_partida: datetime, hora_chegada: datetime,
                  aero_partida: Aeroporto, aero_chegada: Aeroporto):
@@ -138,7 +138,7 @@ class Voo:
         self.vendas: list[Venda] = []
         Voo.id_counter += 1
 
-        Voo.sql_lista += f"    (DEFAULT, '{self.aviao.no_serie}', {timestamp(self.hora_partida)}, {timestamp(self.hora_chegada)}, '{self.aero_partida.codigo}', '{self.aero_chegada.codigo}'),\n"
+        Voo.sql_lista += f"    ('{self.aviao.no_serie}', {timestamp(self.hora_partida)}, {timestamp(self.hora_chegada)}, '{self.aero_partida.codigo}', '{self.aero_chegada.codigo}'),\n"
 
     def definirPrecos(self) -> tuple[float, float]:
         base = aleatorioDistrNormal(1, 4)
@@ -158,21 +158,21 @@ class Voo:
 
 
 class Venda:
-    sql_lista = [insert("venda (codigo_reserva, nif_cliente, balcao, hora)")]
-    codigo = 0
+    sql_lista = [insert("venda (nif_cliente, balcao, hora)")]
+    id_counter = 1
     nif = 1
 
     def __init__(self, balcao: Aeroporto, hora_partida_voo: datetime, voo: Voo):
-        self.codigo = Venda.codigo
+        self.id_counter = Venda.id_counter
         self.nif = self.gerarNIF()
         self.balcao = balcao
         self.data_hora = self.gerarDataHoraDeCompra(hora_partida_voo)
 
         self.voo = voo
         self.bilhetes: list['Bilhete'] = []
-        Venda.codigo += 1
+        Venda.id_counter += 1
 
-        Venda.sql_lista += f"    (DEFAULT, '{self.nif}', '{self.balcao.codigo}', '{timestamp(self.data_hora)}'),\n"
+        Venda.sql_lista += f"    ('{self.nif}', '{self.balcao.codigo}', {timestamp(self.data_hora)}),\n"
 
     def gerarNIF(self):
         new_nif = ''
@@ -199,13 +199,13 @@ class Venda:
     def SQL(): return sqlListaParaStr(Venda.sql_lista)
 
     def __repr__(self) -> str:
-        return f'Venda({self.codigo}, {self.nif}, {self.balcao}, {self.data_hora.day}/{self.data_hora.month} {self.data_hora.hour}:{self.data_hora.minute})'
+        return f'Venda({self.id_counter}, {self.nif}, {self.balcao}, {self.data_hora.day}/{self.data_hora.month} {self.data_hora.hour}:{self.data_hora.minute})'
 
 
 
 class Bilhete:
-    sql_lista = []
-    id_counter = 0
+    sql_lista = [insert("bilhete (voo_id, codigo_reserva, nome_passegeiro, preco, prim_classe, lugar, no_serie)")]
+    id_counter = 1
 
     def __init__(self, voo: Voo, nome: str, assento: Assento, venda: Venda):
         self.id = Bilhete.id_counter
@@ -216,7 +216,7 @@ class Bilhete:
         Bilhete.id_counter += 1
 
         preco = voo.preco_prim_classe if self.assento.primeira_classe else voo.preco_seg_classe
-        Bilhete.sql_lista += f"    (DEFAULT, {voo.id}, {venda.codigo}, '{self.nome}', {preco}, {boolean(self.assento.primeira_classe)}, '{self.assento.lugar}', '{voo.aviao.no_serie}'),\n"
+        Bilhete.sql_lista += f"    ({voo.id}, {venda.id_counter}, '{self.nome}', {preco}, {boolean(self.assento.primeira_classe)}, '{self.assento.lugar}', '{voo.aviao.no_serie}'),\n"
 
     @staticmethod
     def SQL(): return sqlListaParaStr(Bilhete.sql_lista)
@@ -332,7 +332,7 @@ def gerarVendas(voo: Voo):
     bilhetes_por_vender = aleatorioDistrNormal(
                             minimo=round(voo.aviao.numAssentos() * 0.33),
                             maximo=voo.aviao.numAssentos(),
-                            mu=round(voo.aviao.numAssentos() * 0.5) # Para que os aviões tendam a estar 80% cheios
+                            mu=round(voo.aviao.numAssentos() * 0.8) # Para que os aviões tendam a estar 80% cheios
                           )
     
     while bilhetes_por_vender > 0:
@@ -464,7 +464,7 @@ print("A gerar os Aviões")
 modelos = ["Boeing 737", "Airbus A320", "Embraer E190", "Bombardier CRJ200",
            "Boeing 777", "Airbus A350", "McDonnell Douglas MD-80", "Concorde"]
 
-AVIOES = tuple(Aviao(1000 + i, modelos[i % len(modelos)]) for i in range(80))
+AVIOES = tuple(Aviao(1000 + i, modelos[i % len(modelos)]) for i in range(64))
 
 
 
@@ -485,7 +485,7 @@ hora_partida_partida_chegada = set()
 hora_chegada_partida_chegada = set()
 
 while data <= data_fim:
-    for _ in range(aleatorioDistrNormal(3, 6)):
+    for _ in range(random.randint(3, 5)):
         gerarVoo(data, hora_partida_partida_chegada, hora_chegada_partida_chegada)
     data += timedelta(days=1)
 
