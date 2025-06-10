@@ -1,7 +1,20 @@
 from datetime import date, timedelta, time, datetime
+import time as t
 import random
 
-MAX = 100000
+inicio = t.time()
+
+MAX = 1000000
+
+def insert(tabela: str) -> str:
+    return f"INSERT INTO {tabela} VALUES\n"
+
+def timestamp(datahora: datetime) -> str:
+    return datahora.strftime('%Y-%m-%d %H:%M:%S')
+
+def boolean(boolean_value: bool) -> str:
+    if boolean_value: return 'TRUE'
+    else: return 'FALSE'
 
 def aleatorioDistrNormal(minimo: int, maximo: int, mu: float|int = 0, sigma: float = 0):
     if mu == 0: mu = (minimo + maximo) / 2
@@ -13,8 +26,15 @@ def aleatorioDistrNormal(minimo: int, maximo: int, mu: float|int = 0, sigma: flo
     return valor
 
 
+def sqlListaParaStr(sql_lista: list[str]) -> str:
+    sql_lista[-2] = f"{sql_lista[-1][:-1]};\n"
+    return "".join(sql_lista)
+
+
 
 class Aeroporto:
+    sql_lista = [insert("aeroporto (codigo, nome, cidade, pais)")]
+
     def __init__(self, codigo: str, nome: str, cidade: str, pais: str, x: float, y: float):
         self.codigo = codigo
         self.nome = nome
@@ -23,6 +43,7 @@ class Aeroporto:
 
         self.x = x
         self.y = y
+        Aeroporto.sql_lista += f"    ('{self.codigo}', '{self.nome}', '{self.cidade}', '{self.pais}'),\n"
 
     def tempoDeVoo(self, outro: 'Aeroporto'):
         x = outro.x - self.x
@@ -30,22 +51,16 @@ class Aeroporto:
         distancia = (x ** 2 + y ** 2) ** 0.5 # Desprezando a curvatura da Terra...
         return int(distancia * 7.35)
     
+    @staticmethod
+    def SQL(): return sqlListaParaStr(Aeroporto.sql_lista)
+    
     def __repr__(self) -> str:
         return f'Aeroporto({self.codigo}, {self.nome}, {self.cidade}, {self.pais})'
 
 
 
-class Assento:
-    def __init__(self, lugar: str, primeira_classe: bool):
-        self.lugar = lugar
-        self.primeira_classe = primeira_classe
-
-    def __repr__(self) -> str:
-        return f'Assento({self.lugar}, {self.primeira_classe})'
-
-
-
 class Aviao:
+    sql_lista = [insert("aviao (no_serie, modelo)")]
 
     def __init__(self, no_serie: int, modelo: str):
         self.no_serie = no_serie
@@ -54,7 +69,9 @@ class Aviao:
         self.assentos = self.gerarAssentos()
         self.ultimo_voo: Voo|None = None
 
-    def gerarAssentos(self) -> tuple[Assento]:
+        Aviao.sql_lista += f"    ('{self.no_serie}', '{self.modelo}'),\n"
+
+    def gerarAssentos(self) -> tuple['Assento']:
         assentos = []
         letras = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
         num_filas = aleatorioDistrNormal(25, 50)
@@ -66,7 +83,7 @@ class Aviao:
             prim_classe = False
             if fila <= num_filas_prim_classe: prim_classe = True
             for letra in range(num_assentos_por_fila):
-                assentos.append(Assento(f"{fila}{letras[letra]}", prim_classe))
+                assentos.append(Assento(f"{fila}{letras[letra]}", prim_classe, self))
 
         return tuple(assentos)
 
@@ -75,15 +92,37 @@ class Aviao:
         if self.ultimo_voo is None: return obterAleatorio(AEROPORTOS, AEROPORTOS_NAO_USADOS)
         return self.ultimo_voo.aero_chegada
     
-    def num_assentos(self) -> int:
+    def numAssentos(self) -> int:
         return len(self.assentos)
+    
+    @staticmethod
+    def SQL(): return sqlListaParaStr(Aviao.sql_lista)
     
     def __repr__(self) -> str:
         return f'Aviao({self.no_serie}, {self.modelo})'
 
 
 
+class Assento:
+    sql_lista = [insert("assento (lugar, no_serie, prim_classe)")]
+
+    def __init__(self, lugar: str, primeira_classe: bool, aviao: 'Aviao'):
+        self.lugar = lugar
+        self.primeira_classe = primeira_classe
+        self.aviao = aviao
+
+        Assento.sql_lista += f"    ('{self.lugar}', '{aviao.no_serie}', '{self.primeira_classe}'),\n"
+
+    @staticmethod
+    def SQL(): return sqlListaParaStr(Assento.sql_lista)
+
+    def __repr__(self) -> str:
+        return f'Assento({self.lugar}, {self.primeira_classe})'
+
+
+
 class Voo:
+    sql_lista = [insert("voo (id, no_serie, hora_partida, hora_chegada, partida, chegada)")]
     id_counter = 0
 
     def __init__(self, aviao: Aviao, hora_partida: datetime, hora_chegada: datetime,
@@ -99,14 +138,19 @@ class Voo:
         self.vendas: list[Venda] = []
         Voo.id_counter += 1
 
+        Voo.sql_lista += f"    (DEFAULT, '{self.aviao.no_serie}', {timestamp(self.hora_partida)}, {timestamp(self.hora_chegada)}, '{self.aero_partida.codigo}', '{self.aero_chegada.codigo}'),\n"
+
     def definirPrecos(self) -> tuple[float, float]:
         base = aleatorioDistrNormal(1, 4)
         multiplicador = aleatorioDistrNormal(200, 400) / 100
         preco_seg_classe = base * self.aero_partida.tempoDeVoo(self.aero_chegada)
         return round(preco_seg_classe * multiplicador, 2), round(preco_seg_classe, 2)
     
-    def num_vendas(self) -> int:
-        return len(self.vendas)
+    def adicionarVenda(self, venda: 'Venda'):
+        self.vendas.append(venda)
+
+    @staticmethod
+    def SQL(): return sqlListaParaStr(Voo.sql_lista)
     
     def __repr__(self) -> str:
         return f'Voo({self.id}, Aviao[{self.aviao.no_serie}], Partida: {self.hora_partida.day}/{self.hora_partida.month} {self.hora_partida.hour}:{self.hora_partida.minute}, Chegada: {self.hora_chegada.day}/{self.hora_chegada.month} {self.hora_chegada.hour}:{self.hora_chegada.minute}, AeroPartida[{self.aero_partida.codigo}], AeroChegada[{self.aero_chegada.codigo}], Preco-1-Classe: {self.preco_prim_classe}€, Preço-2-Classe: {self.preco_seg_classe}€)'
@@ -114,6 +158,7 @@ class Voo:
 
 
 class Venda:
+    sql_lista = [insert("venda (codigo_reserva, nif_cliente, balcao, hora)")]
     codigo = 0
     nif = 1
 
@@ -126,6 +171,8 @@ class Venda:
         self.voo = voo
         self.bilhetes: list['Bilhete'] = []
         Venda.codigo += 1
+
+        Venda.sql_lista += f"    (DEFAULT, '{self.nif}', '{self.balcao.codigo}', '{timestamp(self.data_hora)}'),\n"
 
     def gerarNIF(self):
         new_nif = ''
@@ -145,20 +192,34 @@ class Venda:
     def adicionarBilhete(self, bilhete: 'Bilhete'):
         self.bilhetes.append(bilhete)
 
+    def numBilhetes(self) -> int:
+        return len(self.bilhetes)
+    
+    @staticmethod
+    def SQL(): return sqlListaParaStr(Venda.sql_lista)
+
     def __repr__(self) -> str:
         return f'Venda({self.codigo}, {self.nif}, {self.balcao}, {self.data_hora.day}/{self.data_hora.month} {self.data_hora.hour}:{self.data_hora.minute})'
 
 
 
 class Bilhete:
+    sql_lista = []
     id_counter = 0
 
-    def __init__(self, voo: Voo, nome: str, assento: Assento):
+    def __init__(self, voo: Voo, nome: str, assento: Assento, venda: Venda):
         self.id = Bilhete.id_counter
         self.voo = voo
         self.nome = nome
         self.assento = assento
+        self.venda = venda
         Bilhete.id_counter += 1
+
+        preco = voo.preco_prim_classe if self.assento.primeira_classe else voo.preco_seg_classe
+        Bilhete.sql_lista += f"    (DEFAULT, {voo.id}, {venda.codigo}, '{self.nome}', {preco}, {boolean(self.assento.primeira_classe)}, '{self.assento.lugar}', '{voo.aviao.no_serie}'),\n"
+
+    @staticmethod
+    def SQL(): return sqlListaParaStr(Bilhete.sql_lista)
 
     def __repr__(self) -> str:
         return f'Bilhete({self.id}, Voo[{self.voo.id}], {self.nome}, {self.assento.lugar})'
@@ -181,17 +242,20 @@ def obterAleatorio(opcoes: tuple, nao_usados: list, excluir=None):
 def datetimeAleatorio(inicio: datetime, fim: datetime):
     delta = fim - inicio
     segundos_totais = int(delta.total_seconds())
+    if segundos_totais < 0: raise ValueError("Data de início posterior à de fim")
     segundos_aleatorios = random.randint(0, segundos_totais)
     return inicio + timedelta(seconds=segundos_aleatorios)
     
 
-def obterAviao(data: date) -> Aviao:
+def obterAviao(data: date, excluir=None) -> Aviao:
     global AVIOES, AVIOES_NAO_USADOS, MAX
+    avioes = list(AVIOES)
+    if excluir is not None: avioes.remove(excluir)
     i = 0
     while i < MAX:
-        aviao: Aviao = obterAleatorio(AVIOES, AVIOES_NAO_USADOS)
+        aviao: Aviao = obterAleatorio(tuple(avioes), AVIOES_NAO_USADOS)
         if aviao.ultimo_voo is not None and (aviao.ultimo_voo.hora_chegada.date() > data \
-        or aviao.ultimo_voo.hora_chegada.time() > time(23, 30)):
+        or aviao.ultimo_voo.hora_chegada.time() > time(23, 29)):
             i += 1
             continue
         return aviao
@@ -225,37 +289,36 @@ def obterHorasVoo(data: date, aviao: Aviao, aero_partida: Aeroporto, aero_chegad
         i += 1
         
     raise ValueError("Não há horas de partida e chegada disponíveis")
+
+
+def criarVooVolta(voo_ida: Voo) -> Voo:
+    aero_partida = voo_ida.aero_chegada
+    aero_chegada = voo_ida.aero_partida
+    tempo_voo = aero_partida.tempoDeVoo(aero_chegada)
+    hora_partida = voo_ida.hora_chegada + timedelta(minutes=aleatorioDistrNormal(30, 240))
+    hora_chegada = hora_partida + timedelta(minutes=tempo_voo)
+    return Voo(voo_ida.aviao, hora_partida, hora_chegada, aero_partida, aero_chegada)
     
 
-def gerarVoo(data: date, hora_partida_partida_chegada: set, hora_chegada_partida_chegada: set, voos_regresso: list[Voo]):    
+def gerarVoo(data: date, hora_partida_partida_chegada: set, hora_chegada_partida_chegada: set):    
     global AEROPORTOS, AVIOES, VOOS, AEROPORTOS_NAO_USADOS, AVIOES_NAO_USADOS # Para reduzir a quantidade de argumentos das funções
-    garantir_regresso = True
-    if not voos_regresso:
-        aviao = obterAviao(data)
-        aero_partida = aviao.obterAeroportoDePartida()
-        aero_chegada = obterAleatorio(AEROPORTOS, AEROPORTOS_NAO_USADOS, excluir=aero_partida)
-    else:
-        aviao = voos_regresso[-1].aviao
-        if aviao.ultimo_voo is not None and (aviao.ultimo_voo.hora_chegada.date() > data \
-        or aviao.ultimo_voo.hora_chegada.time() > time(23, 30)):
-            aviao = obterAviao(data)
-            aero_partida = aviao.obterAeroportoDePartida()
-            aero_chegada = obterAleatorio(AEROPORTOS, AEROPORTOS_NAO_USADOS, excluir=aero_partida)
-        else:
-            aero_partida = voos_regresso[-1].aero_chegada
-            aero_chegada = voos_regresso[-1].aero_partida
-            garantir_regresso = False
-            voos_regresso.pop()
+
+    aviao = obterAviao(data)
+    aero_partida = aviao.obterAeroportoDePartida()
+    aero_chegada = obterAleatorio(AEROPORTOS, AEROPORTOS_NAO_USADOS, excluir=aero_partida)
 
     hora_partida, hora_chegada = obterHorasVoo(data, aviao, aero_partida, aero_chegada,
                                                hora_partida_partida_chegada, hora_chegada_partida_chegada)
-    voo = Voo(aviao, hora_partida, hora_chegada, aero_partida, aero_chegada)
+    
+    voo_ida = Voo(aviao, hora_partida, hora_chegada, aero_partida, aero_chegada)
+    gerarVendas(voo_ida)
 
-    gerarVendas(voo)
+    voo_volta = criarVooVolta(voo_ida)
+    gerarVendas(voo_volta)
 
-    if garantir_regresso: voos_regresso.append(voo)
-    aviao.ultimo_voo = voo
-    VOOS.append(voo)
+    aviao.ultimo_voo = voo_volta
+    VOOS.append(voo_ida)
+    VOOS.append(voo_volta)
 
 
 
@@ -267,9 +330,9 @@ def gerarVendas(voo: Voo):
     forcar_sec_classe = True
     assentos_disponiveis = list(voo.aviao.assentos)
     bilhetes_por_vender = aleatorioDistrNormal(
-                            minimo=round(voo.aviao.num_assentos() * 0.33),
-                            maximo=voo.aviao.num_assentos(),
-                            mu=round(voo.aviao.num_assentos() * 0.8) # Para que os aviões tendam a estar 80% cheios
+                            minimo=round(voo.aviao.numAssentos() * 0.33),
+                            maximo=voo.aviao.numAssentos(),
+                            mu=round(voo.aviao.numAssentos() * 0.5) # Para que os aviões tendam a estar 80% cheios
                           )
     
     while bilhetes_por_vender > 0:
@@ -278,6 +341,7 @@ def gerarVendas(voo: Voo):
                                                                                     assentos_disponiveis,
                                                                                     forcar_prim_classe,
                                                                                     forcar_sec_classe)
+        voo.adicionarVenda(venda)
 
 
 
@@ -324,7 +388,7 @@ def venderBilhetes(venda: Venda, bilhetes_por_vender: int, assentos_disponiveis:
 
         else: assento = random.choice(tuple(assentos_disponiveis))
         
-        bilhete = Bilhete(venda.voo, nome, assento)
+        bilhete = Bilhete(venda.voo, nome, assento, venda)
         venda.adicionarBilhete(bilhete)
         assentos_disponiveis.remove(assento)
         bilhetes_por_vender -= 1
@@ -369,6 +433,7 @@ APELIDOS = (
 )
 
 
+print("A gerar os Aeroportos")
 
 AEROPORTOS = (
     Aeroporto("LHR", "Heathrow Airport", "Londres", "Reino Unido", 51.4700, -0.4543),
@@ -394,25 +459,12 @@ AEROPORTOS = (
 )
 
 
+print("A gerar os Aviões")
 
-AVIOES = (
-    Aviao(no_serie=1000, modelo="Boeing 737"),
-    Aviao(no_serie=1001, modelo="Airbus A320"),
-    Aviao(no_serie=1002, modelo="Embraer E190"),
-    Aviao(no_serie=1003, modelo="Bombardier CRJ200"),
-    Aviao(no_serie=1004, modelo="Boeing 777"),
-    Aviao(no_serie=1005, modelo="Airbus A350"),
-    Aviao(no_serie=1006, modelo="McDonnell Douglas MD-80"),
-    Aviao(no_serie=1007, modelo="Concorde"),
-    Aviao(no_serie=1008, modelo="Boeing 737"),
-    Aviao(no_serie=1009, modelo="Airbus A320"),
-    Aviao(no_serie=1010, modelo="Embraer E190"),
-    Aviao(no_serie=1011, modelo="Bombardier CRJ200"),
-    Aviao(no_serie=1012, modelo="Boeing 777"),
-    Aviao(no_serie=1013, modelo="Airbus A350"),
-    Aviao(no_serie=1014, modelo="McDonnell Douglas MD-80"),
-    Aviao(no_serie=1015, modelo="Concorde")
-)
+modelos = ["Boeing 737", "Airbus A320", "Embraer E190", "Bombardier CRJ200",
+           "Boeing 777", "Airbus A350", "McDonnell Douglas MD-80", "Concorde"]
+
+AVIOES = tuple(Aviao(1000 + i, modelos[i % len(modelos)]) for i in range(80))
 
 
 
@@ -421,19 +473,49 @@ AVIOES_NAO_USADOS = list(AVIOES)
 
 
 
-VOOS = []
+VOOS: list[Voo] = []
 
+print("A gerar voos e respetivas vendas e bilhetes")
 
 # Gerar voos, vendas e bilhetes
 data = date(2025, 1, 1)
-data_fim = date(2025, 7, 31)
+data_fim = date(2025, 7, 3)
 
 hora_partida_partida_chegada = set()
 hora_chegada_partida_chegada = set()
 
-voos_regresso = []
-
 while data <= data_fim:
-    for _ in range(aleatorioDistrNormal(5, 10)):
-        gerarVoo(data, hora_partida_partida_chegada, hora_chegada_partida_chegada, voos_regresso)
+    for _ in range(aleatorioDistrNormal(3, 6)):
+        gerarVoo(data, hora_partida_partida_chegada, hora_chegada_partida_chegada)
     data += timedelta(days=1)
+
+print("A verificar restrições")
+
+# Verificar restrições
+
+if AVIOES_NAO_USADOS: raise ValueError("Há aviões não usados")
+if AEROPORTOS_NAO_USADOS: raise ValueError("Há aeroportos não usados")
+
+num_vendas = 0
+num_bilhetes = 0
+for voo in VOOS:
+    for venda in voo.vendas:
+        num_bilhetes += venda.numBilhetes()
+        num_vendas += 1
+
+if num_vendas < 10000: raise ValueError(f"Foram feitas poucas vendas: {num_vendas}")
+if num_bilhetes < 30000: raise ValueError(f"Foram vendidos poucos bilhetes: {num_bilhetes}")
+
+
+# Gera o ficheiro populate.sql
+
+print("A escrever o populate.sql")
+conteudo = "\n".join((Aeroporto.SQL(), Aviao.SQL(), Assento.SQL(), Voo.SQL(), Venda.SQL(), Bilhete.SQL()))
+
+
+with open("populate.sql", "w") as file: file.write(conteudo)
+
+print("Feito!")
+
+tempo_decorrido = t.time() - inicio
+print(f"Tempo de execução: {tempo_decorrido:.2f}s")
