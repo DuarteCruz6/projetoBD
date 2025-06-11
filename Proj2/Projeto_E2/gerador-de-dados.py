@@ -141,10 +141,8 @@ class Voo:
         Voo.sql_lista += f"    ('{self.aviao.no_serie}', {timestamp(self.hora_partida)}, {timestamp(self.hora_chegada)}, '{self.aero_partida.codigo}', '{self.aero_chegada.codigo}'),\n"
 
     def definirPrecos(self) -> tuple[float, float]:
-        base = aleatorioDistrNormal(1, 4)
-        multiplicador = aleatorioDistrNormal(200, 400) / 100
-        preco_seg_classe = base * self.aero_partida.tempoDeVoo(self.aero_chegada)
-        return round(preco_seg_classe * multiplicador, 2), round(preco_seg_classe, 2)
+        tempo_voo = 60 * self.aero_partida.tempoDeVoo(self.aero_chegada)
+        return round(60 * tempo_voo), round(40 * tempo_voo, 2)
     
     def adicionarVenda(self, venda: 'Venda'):
         self.vendas.append(venda)
@@ -187,7 +185,7 @@ class Venda:
     def gerarDataHoraDeCompra(self, hora_partida_voo: datetime):
         datetime_max = hora_partida_voo - timedelta(hours=12)
         datetime_min = hora_partida_voo - timedelta(hours=2200) # Aproximadamente 3 meses
-        return datetimeAleatorio(datetime_min, datetime_max)
+        return datetimeAleatorio(datetime_min, datetime_max, max_atual=True)
     
     def adicionarBilhete(self, bilhete: 'Bilhete'):
         self.bilhetes.append(bilhete)
@@ -239,8 +237,9 @@ def obterAleatorio(opcoes: tuple, nao_usados: list, excluir=None):
         return opcao
     
 
-def datetimeAleatorio(inicio: datetime, fim: datetime):
-    delta = fim - inicio
+def datetimeAleatorio(inicio: datetime, fim: datetime, max_atual: bool = False):
+    if not max_atual: delta = fim - inicio
+    else: delta = min(datetime.now(), fim) - inicio
     segundos_totais = int(delta.total_seconds())
     if segundos_totais < 0: raise ValueError("Data de início posterior à de fim")
     segundos_aleatorios = random.randint(0, segundos_totais)
