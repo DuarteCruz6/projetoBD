@@ -1,0 +1,16 @@
+meta {
+  name: List next 3 flights (no_serie, hora_partida) between 2 airports that have 2 tickets available
+  type: http
+  seq: 5
+}
+
+get {
+  url: http://localhost:8080/voos/:partida/:chegada/
+  body: none
+  auth: inherit
+}
+
+params:path {
+  partida: 
+  chegada: 
+}

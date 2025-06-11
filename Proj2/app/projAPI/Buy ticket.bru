@@ -1,0 +1,20 @@
+meta {
+  name: Buy ticket
+  type: http
+  seq: 7
+}
+
+post {
+  url: http://localhost:8080/compra/:partida/?nif_cliente&pairs
+  body: none
+  auth: inherit
+}
+
+params:query {
+  nif_cliente: 
+  pairs: 
+}
+
+params:path {
+  partida: 
+}

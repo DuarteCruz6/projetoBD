@@ -1,0 +1,15 @@
+meta {
+  name: Leaves in 12h from {partida}
+  type: http
+  seq: 4
+}
+
+get {
+  url: http://localhost:8080/voos/:partida/
+  body: none
+  auth: inherit
+}
+
+params:path {
+  partida: 
+}
