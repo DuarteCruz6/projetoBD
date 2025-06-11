@@ -141,7 +141,7 @@ class Voo:
         Voo.sql_lista += f"    ('{self.aviao.no_serie}', {timestamp(self.hora_partida)}, {timestamp(self.hora_chegada)}, '{self.aero_partida.codigo}', '{self.aero_chegada.codigo}'),\n"
 
     def definirPrecos(self) -> tuple[float, float]:
-        tempo_voo = 60 * self.aero_partida.tempoDeVoo(self.aero_chegada)
+        tempo_voo = self.aero_partida.tempoDeVoo(self.aero_chegada) / 60
         return round(60 * tempo_voo), round(40 * tempo_voo, 2)
     
     def adicionarVenda(self, venda: 'Venda'):
