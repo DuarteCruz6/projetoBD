@@ -5,6 +5,7 @@ import random
 inicio = t.time()
 
 MAX = 1000000
+DATA_MAX = datetime(2025, 6, 17, 8, 0)
 
 def insert(tabela: str) -> str:
     return f"INSERT INTO {tabela} VALUES\n"
@@ -24,7 +25,6 @@ def aleatorioDistrNormal(minimo: int, maximo: int, mu: float|int = 0, sigma: flo
     if valor > maximo: valor = maximo
     elif valor < minimo: valor = minimo
     return valor
-
 
 def sqlListaParaStr(sql_lista: list[str]) -> str:
     sql_lista[-2] = f"{sql_lista[-1][:-1]};\n"
@@ -205,22 +205,27 @@ class Bilhete:
     sql_lista = [insert("bilhete (voo_id, codigo_reserva, nome_passegeiro, preco, prim_classe, lugar, no_serie)")]
     id_counter = 1
 
-    def __init__(self, voo: Voo, nome: str, assento: Assento, venda: Venda):
+    def __init__(self, voo: Voo, nome: str, assento: Assento|None, venda: Venda, primeira_classe: bool):
         self.id = Bilhete.id_counter
         self.voo = voo
         self.nome = nome
         self.assento = assento
         self.venda = venda
+        self.primeira_classe = primeira_classe
         Bilhete.id_counter += 1
 
-        preco = voo.preco_prim_classe if self.assento.primeira_classe else voo.preco_seg_classe
-        Bilhete.sql_lista += f"    ({voo.id}, {venda.id_counter}, '{self.nome}', {preco}, {boolean(self.assento.primeira_classe)}, '{self.assento.lugar}', '{voo.aviao.no_serie}'),\n"
+        preco = voo.preco_prim_classe if self.primeira_classe else voo.preco_seg_classe
+        Bilhete.sql_lista += f"    ({voo.id}, {venda.id_counter}, '{self.nome}', {preco}, {boolean(self.primeira_classe)}, {self.lugarOut()}, '{voo.aviao.no_serie}'),\n"
 
     @staticmethod
     def SQL(): return sqlListaParaStr(Bilhete.sql_lista)
 
+    def lugarOut(self) -> str:
+        if self.assento == None: return 'NULL'
+        return f"'{self.assento.lugar}'"
+
     def __repr__(self) -> str:
-        return f'Bilhete({self.id}, Voo[{self.voo.id}], {self.nome}, {self.assento.lugar})'
+        return f'Bilhete({self.id}, Voo[{self.voo.id}], {self.nome}, {self.assento.lugar if self.assento is not None else "NULL"})'
 
 
 
@@ -238,8 +243,9 @@ def obterAleatorio(opcoes: tuple, nao_usados: list, excluir=None):
     
 
 def datetimeAleatorio(inicio: datetime, fim: datetime, max_atual: bool = False):
+    global DATA_MAX
     if not max_atual: delta = fim - inicio
-    else: delta = min(datetime.now(), fim) - inicio
+    else: delta = min(DATA_MAX, fim) - inicio
     segundos_totais = int(delta.total_seconds())
     if segundos_totais < 0: raise ValueError("Data de início posterior à de fim")
     segundos_aleatorios = random.randint(0, segundos_totais)
@@ -260,6 +266,16 @@ def obterAviao(data: date, excluir=None) -> Aviao:
         return aviao
     raise ValueError("Nenhum avião disponível")
 
+
+def obterAeroportoChegada(aero_partida: Aeroporto) -> Aeroporto:
+    global AEROPORTOS, AEROPORTOS_NAO_USADOS, MAX
+    i = 0
+    while i < MAX:
+        aero_chegada = obterAleatorio(AEROPORTOS, AEROPORTOS_NAO_USADOS, excluir=aero_partida)
+        if aero_partida.cidade != aero_chegada.cidade: return aero_chegada
+        i += 1
+
+    raise ValueError("Não há aeroportos de chegada disponíveis")
 
 
 
@@ -304,7 +320,7 @@ def gerarVoo(data: date, hora_partida_partida_chegada: set, hora_chegada_partida
 
     aviao = obterAviao(data)
     aero_partida = aviao.obterAeroportoDePartida()
-    aero_chegada = obterAleatorio(AEROPORTOS, AEROPORTOS_NAO_USADOS, excluir=aero_partida)
+    aero_chegada = obterAeroportoChegada(aero_partida)
 
     hora_partida, hora_chegada = obterHorasVoo(data, aviao, aero_partida, aero_chegada,
                                                hora_partida_partida_chegada, hora_chegada_partida_chegada)
@@ -354,7 +370,7 @@ def gerarNome(nomes_ja_gerados: list[str]) -> str:
     nome = f"{random.choice(NOMES)} "
     i = 0
     while i < MAX:
-        quantidade_apelidos = aleatorioDistrNormal(1, 6, mu=2.5)
+        quantidade_apelidos = aleatorioDistrNormal(1, 4, mu=2.5)
         for _ in range(quantidade_apelidos):
             apelido = random.choice(tuple(apelidos))
             nome += apelido
@@ -370,26 +386,44 @@ def gerarNome(nomes_ja_gerados: list[str]) -> str:
     raise ValueError("Esgotaram-se os nomes")
 
 
+def atribuirAssento(venda: Venda, assentos_disponiveis: list[Assento],
+                    forcar_prim_classe: bool, forcar_seg_classe: bool) -> tuple[Assento|None, bool, bool, bool]:
+    global DATA_MAX
+
+    min_check_in_date = DATA_MAX + timedelta(days=2)
+    prim_classe = False
+    checked_in = True
+
+    if venda.voo.hora_partida > min_check_in_date or (venda.voo.hora_partida > DATA_MAX and random.random() < 0.5):
+        checked_in = False
+
+    if forcar_prim_classe:
+        prim_classe = True
+        assento = assentos_disponiveis[0]
+        forcar_prim_classe = False
+
+    elif forcar_seg_classe:
+        assento = assentos_disponiveis[-1]
+        forcar_seg_classe = False
+
+    else: assento = random.choice(tuple(assentos_disponiveis))
+    assentos_disponiveis.remove(assento)
+    if assento.primeira_classe: prim_classe = True
+    if not checked_in: assento = None
+
+    return assento, forcar_prim_classe, forcar_seg_classe, prim_classe
+
+
 def venderBilhetes(venda: Venda, bilhetes_por_vender: int, assentos_disponiveis: list[Assento],
                    forcar_prim_classe: bool, forcar_seg_classe: bool) -> tuple[int, bool, bool]:
     num_bilhetes = min(aleatorioDistrNormal(1, 5, mu=2), bilhetes_por_vender)
     nomes_ja_gerados = []
     for _ in range(num_bilhetes):
         nome = gerarNome(nomes_ja_gerados)
-
-        if forcar_prim_classe:
-            assento = assentos_disponiveis[0]
-            forcar_prim_classe = False
-
-        elif forcar_seg_classe:
-            assento = assentos_disponiveis[-1]
-            forcar_seg_classe = False
-
-        else: assento = random.choice(tuple(assentos_disponiveis))
-        
-        bilhete = Bilhete(venda.voo, nome, assento, venda)
+        assento, forcar_prim_classe, forcar_seg_classe, prim_classe = atribuirAssento(venda, assentos_disponiveis,
+                                                                                      forcar_prim_classe, forcar_seg_classe)
+        bilhete = Bilhete(venda.voo, nome, assento, venda, prim_classe)
         venda.adicionarBilhete(bilhete)
-        assentos_disponiveis.remove(assento)
         bilhetes_por_vender -= 1
 
     return bilhetes_por_vender, forcar_prim_classe, forcar_seg_classe
@@ -478,7 +512,7 @@ print("A gerar voos e respetivas vendas e bilhetes")
 
 # Gerar voos, vendas e bilhetes
 data = date(2025, 1, 1)
-data_fim = date(2025, 7, 3)
+data_fim = date(2025, 7, 31)
 
 hora_partida_partida_chegada = set()
 hora_chegada_partida_chegada = set()
