@@ -132,6 +132,9 @@ def buyTickets(voo_id):
 
     nif_cliente = request.args.get("nif_cliente")
     
+    if not nif_cliente:
+        return jsonify({"message": "Dados incompletos", "status": "error"}), 400
+    
     try:
         int(nif_cliente)
     except:
@@ -142,7 +145,7 @@ def buyTickets(voo_id):
     
     pairs_jsonList = request.args.get("pairs")
     
-    if not nif_cliente or not pairs_jsonList:
+    if not pairs_jsonList:
         return jsonify({"message": "Dados incompletos", "status": "error"}), 400
     
     try:
