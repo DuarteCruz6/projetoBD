@@ -40,6 +40,10 @@ def show_flights_12hour(partida):
     timeEnd = timeNow + datetime.timedelta(hours=12)
     with pool.connection() as conn:
         with conn.cursor() as cur:
+            
+            if not checkAeroport(cur,partida):
+                return jsonify({"message": "Aeroport not found."}), 404
+            
             flights = cur.execute(
                 """
                 SELECT no_serie, hora_partida, chegada
@@ -52,7 +56,7 @@ def show_flights_12hour(partida):
             ).fetchall()
 
     if not flights:
-        return jsonify({"message": "No flights found.", "status": "error"}), 404
+        return jsonify({"message": "No flights found."}), 200
 
     flight_list = [
         {
@@ -79,6 +83,11 @@ def show_3_flights_with_tickets(partida, chegada):
     timeNow = datetime.datetime.now()
     with pool.connection() as conn:
         with conn.cursor() as cur:
+            if not checkAeroport(cur,partida):
+                return jsonify({"message": "Aeroport not found."}), 404
+            if not checkAeroport(cur,chegada):
+                return jsonify({"message": "Aeroport not found."}), 404
+            
             flights = cur.execute(
                 """
                 SELECT voo.no_serie, voo.hora_partida
