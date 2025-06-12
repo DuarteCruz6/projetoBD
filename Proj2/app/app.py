@@ -96,7 +96,6 @@ def show_flights_12hour(partida):
                 """,
                 {"partida": partida, "timeNow": timeNow, "timeEnd": timeEnd},
             ).fetchall()
-            log.debug(f"Found {cur.rowcount} rows.")
 
     if not flights:
         return jsonify({"message": "No flights found.", "status": "error"}), 404
@@ -222,49 +221,22 @@ def verifyTicketsAvailability(cur, voo_id, pairs):
     
     return True
 
-def createVenda(cur, nif_cliente):
-    #gets the last codigo_venda
-    cur.execute(
-        """
-            SELECT codigo_reserva FROM venda
-            ORDER BY codigo_reserva DESC
-            LIMIT 1
-        """
-    )
-    row = cur.fetchone()
-    last_codigo_reserva = row[0] if row else 0
-        
+def createVenda(cur, nif_cliente): 
     #creates <venda>
     cur.execute(
         """
-            INSERT INTO venda (codigo_reserva, nif_cliente, balcao, hora)
-            VALUES (%(codigo_reserva)s, %(nif_cliente)s, %(balcao)s, %(hora)s)
+            INSERT INTO venda (nif_cliente, balcao, hora)
+            VALUES (%(nif_cliente)s, %(balcao)s, %(hora)s)
             RETURNING codigo_reserva;
         """, 
         {
-            "codigo_reserva":last_codigo_reserva+1, "nif_cliente":nif_cliente, 
-            "balcao":None, "hora":datetime.datetime.now()
+            "nif_cliente":nif_cliente,"balcao":None, "hora":datetime.datetime.now()
         }
     )
-    
-    return last_codigo_reserva+1
+    codigo_reserva = cur.fetchone()[0]
+    return codigo_reserva
     
 def createTickets(cur, voo_id, pairs, nif_cliente, tempo_voo):
-    #gets the last ticketId for this flight
-    cur.execute(
-        """
-            SELECT id FROM bilhete
-            ORDER BY id DESC
-            LIMIT 1
-        """,
-        {} 
-    )
-    row = cur.fetchone()
-    if not row:
-        return False
-    last_bilhete_id = row[0] if row else 0
-    offSet = 1
-    
     cur.execute(
         """
             SELECT no_serie FROM voo
@@ -283,7 +255,6 @@ def createTickets(cur, voo_id, pairs, nif_cliente, tempo_voo):
     codigo_reserva = createVenda(cur, nif_cliente)
     listTicketsIds = []
     for pair in pairs:
-        print(pair)
         # pair = (nome_passageiro, classe de bilhete)
         #creates <bilhete>
         nome_passageiro = pair[0]
@@ -295,20 +266,21 @@ def createTickets(cur, voo_id, pairs, nif_cliente, tempo_voo):
             
         cur.execute(
             """
-                INSERT INTO bilhete (id, voo_id, codigo_reserva, nome_passegeiro, preco, prim_classe, lugar, no_serie)
+                INSERT INTO bilhete (voo_id, codigo_reserva, nome_passegeiro, preco, prim_classe, lugar, no_serie)
                 VALUES (
-                    %(id)s,%(voo_id)s,%(codigo_reserva)s,%(nome_passegeiro)s,%(preco)s,
+                    %(voo_id)s,%(codigo_reserva)s,%(nome_passegeiro)s,%(preco)s,
                         %(prim_classe)s,%(lugar)s,%(no_serie)s
                 )
+                RETURNING id
             """,
             {
-                "id":last_bilhete_id+offSet, "voo_id":voo_id, "codigo_reserva":codigo_reserva, 
+                "voo_id":voo_id, "codigo_reserva":codigo_reserva, 
                 "nome_passegeiro":nome_passageiro, "preco":preco, "prim_classe":prim_classe,
                 "lugar": None,"no_serie":no_serie,
             }
         )
-        listTicketsIds.append(last_bilhete_id+offSet)
-        offSet+=1
+        idBilhete = cur.fetchone()[0] 
+        listTicketsIds.append(idBilhete)
     return listTicketsIds
         
         
@@ -497,7 +469,6 @@ def do_checkIn_ticket(bilhete_id):
 @app.route("/ping", methods=("GET",))
 @limiter.exempt
 def ping():
-    log.debug("ping!")
     return jsonify({"message": "pong!", "status": "success"})
 
 
