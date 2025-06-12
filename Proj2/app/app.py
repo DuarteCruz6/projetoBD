@@ -119,16 +119,14 @@ def show_3_flights_with_tickets(partida, chegada):
     """flight = (no_serie, hora_partida)"""
     
     if partida == chegada:
-        return jsonify({"message": "Foi selecionado o mesmo aeroporto na chegada e na partida.", "status": "error"}), 404
+        return jsonify({"message": "Foi selecionado o mesmo aeroporto na chegada e na partida.", "status": "error"}), 400
     
     timeNow = datetime.datetime.now()
     with pool.connection() as conn:
         with conn.cursor() as cur:
             flights = cur.execute(
                 """
-                SELECT voo.id, voo.no_serie, voo.hora_partida,
-                    COALESCE(bilhete.bilhetes_emitidos, 0) AS bilhetes_emitidos,
-                    COALESCE(assento.total_assentos, 0) AS total_assentos
+                SELECT voo.no_serie, voo.hora_partida
                 FROM voo
                 JOIN aviao ON voo.no_serie = aviao.no_serie 
                 
@@ -361,40 +359,33 @@ def buyTickets(voo_id):
         if not isinstance(pair[1],bool):
             return jsonify({"message": "Dados inválidos."}), 400
 
-    conn = None
     try:
         with pool.connection() as conn:
-            conn.autocommit = False #desliga commits automaticos para caso haja um erro a meio
-            with conn.cursor() as cur:
-                
-                #get flight
-                flight = getFlight(cur,voo_id)
-                if not flight:
-                    return jsonify({"message": "Voo não encontrado."}), 400
-                 
-                if not verifyTicketsAvailability(cur,voo_id,pairs):
-                    #there are no suficient tickets
-                    return jsonify({"message": "Não há lugares suficientes."}), 400
-                
-                tempo_voo = calculateTempoVoo(cur, voo_id)
-                if tempo_voo == 0:
-                    return jsonify({"message": "Erro a calcular tempo de voo."}), 400
-                
-                listTicketsId = createTickets(cur, voo_id, pairs, nif_cliente, tempo_voo)
-                if not listTicketsId:
-                    return jsonify({"message": "Erro a criar bilhetes."}), 400
-                
-            conn.commit()
+            with conn.transaction():
+                with conn.cursor() as cur:
+
+                    #get flight
+                    flight = getFlight(cur,voo_id)
+                    if not flight:
+                        return jsonify({"message": "Voo não encontrado."}), 404
+
+                    if not verifyTicketsAvailability(cur,voo_id,pairs):
+                        #there are no suficient tickets
+                        return jsonify({"message": "Não há lugares suficientes."}), 409
+
+                    tempo_voo = calculateTempoVoo(cur, voo_id)
+                    if tempo_voo == 0:
+                        return jsonify({"message": "Erro a calcular tempo de voo."}), 500
+
+                    listTicketsId = createTickets(cur, voo_id, pairs, nif_cliente, tempo_voo)
+                    if not listTicketsId:
+                        return jsonify({"message": "Erro a criar bilhetes."}), 500
+
             
     except Exception as e:
-        if conn:
-            try:
-                conn.rollback()
-            except:
-                pass
         return jsonify({"message": f"Erro interno: {str(e)}"}), 500
 
-    return jsonify({"message": f"Bilhetes comprados com sucesso com Ids: {listTicketsId}"}), 200
+    return jsonify({"message": "Bilhetes comprados com sucesso", "Ids": listTicketsId}), 201
 
 def getSeat(cur,voo_id,no_serie,prim_classe):
     cur.execute(
@@ -425,45 +416,45 @@ def do_checkIn_ticket(bilhete_id):
     """Does a checkIn of a ticket, giving him the seat from the correspondent class"""
 
     with pool.connection() as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                    SELECT voo_id, no_serie, prim_classe, lugar FROM bilhete
-                    WHERE id = %(bilhete_id)s
-                    LIMIT 1
-                """,
-                {
-                    "bilhete_id":bilhete_id,
-                } 
-            )
-            row = cur.fetchone()
-            if not row:
-                return jsonify({"message": "Bilhete não encontrado."}), 400 
-            
-            voo_id, no_serie, prim_classe, lugar_atual = row
-            if lugar_atual is not None:
-                return jsonify({"message": "Check-in já efetuado para este bilhete."}), 400
-            
-            lugar = getSeat(cur, voo_id, no_serie, prim_classe)
-            
-            if lugar is None:
-                return jsonify({"message": "Erro ao atribuir lugar."}), 400 
-            
-            cur.execute(
-                """
-                    UPDATE bilhete
-                    SET lugar = %(lugar)s
-                    WHERE id = %(bilhete_id)s
-                """,
-                {
-                    "lugar": lugar,
-                    "bilhete_id": bilhete_id,
-                }
-            )
-            conn.commit() #para garantir que fica guardado na base de dados
+        with conn.transaction():
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                        SELECT voo_id, no_serie, prim_classe, lugar FROM bilhete
+                        WHERE id = %(bilhete_id)s
+                        LIMIT 1
+                    """,
+                    {
+                        "bilhete_id":bilhete_id,
+                    } 
+                )
+                row = cur.fetchone()
+                if not row:
+                    return jsonify({"message": "Bilhete não encontrado."}), 404 
 
+                voo_id, no_serie, prim_classe, lugar_atual = row
+                if lugar_atual is not None:
+                    return jsonify({"message": "Check-in já efetuado para este bilhete."}), 400
 
-    return jsonify({"lugar": lugar}), 200
+                lugar = getSeat(cur, voo_id, no_serie, prim_classe)
+
+                if lugar is None:
+                    return jsonify({"message": "Erro ao atribuir lugar."}), 500 
+
+                cur.execute(
+                    """
+                        UPDATE bilhete
+                        SET lugar = %(lugar)s
+                        WHERE id = %(bilhete_id)s
+                    """,
+                    {
+                        "lugar": lugar,
+                        "bilhete_id": bilhete_id,
+                    }
+                )
+                
+
+    return jsonify({"message": "Check-in efetuado com sucesso.", "lugar": lugar}), 201
 
 
 @app.route("/ping", methods=("GET",))
