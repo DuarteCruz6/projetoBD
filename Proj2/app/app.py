@@ -11,7 +11,7 @@ def list_aeroports():
         with conn.cursor() as cur:
             aeroports = cur.execute(
                 """
-                SELECT nome, cidade
+                SELECT nome, cidade, codigo
                 FROM aeroporto
                 """,
                 {},
@@ -24,6 +24,7 @@ def list_aeroports():
         {
             "nome": aeroport[0],
             "cidade": aeroport[1],
+            "codigo":aeroport[2]
         }
         for aeroport in aeroports
     ]
@@ -46,7 +47,7 @@ def show_flights_12hour(partida):
             
             flights = cur.execute(
                 """
-                SELECT no_serie, hora_partida, chegada
+                SELECT no_serie, hora_partida, chegada, id
                 FROM voo
                 WHERE hora_partida >= %(timeNow)s 
                 AND hora_partida <= %(timeEnd)s 
@@ -62,7 +63,8 @@ def show_flights_12hour(partida):
         {
             "no_serie": flight[0],
             "hora_partida": flight[1].isoformat(),
-            "chegada": flight[2]
+            "chegada": flight[2],
+            "voo_id":flight[3]
         }
         for flight in flights
     ]
@@ -90,7 +92,7 @@ def show_3_flights_with_tickets(partida, chegada):
             
             flights = cur.execute(
                 """
-                SELECT voo.no_serie, voo.hora_partida
+                SELECT voo.no_serie, voo.hora_partida, voo.id
                 FROM voo
                 JOIN aviao ON voo.no_serie = aviao.no_serie 
                 
@@ -125,6 +127,7 @@ def show_3_flights_with_tickets(partida, chegada):
         {
             "no_serie": flight[0],
             "hora_partida": flight[1].isoformat(),
+            "voo_id":flight[2]
         }
         for flight in flights
     ]
