@@ -212,7 +212,7 @@ def do_checkIn_ticket(bilhete_id):
             with conn.cursor() as cur:
                 cur.execute(
                     """
-                        SELECT voo_id, no_serie, prim_classe, lugar FROM bilhete
+                        SELECT voo_id, prim_classe, lugar FROM bilhete
                         WHERE id = %(bilhete_id)s
                         LIMIT 1
                     """,
@@ -223,25 +223,32 @@ def do_checkIn_ticket(bilhete_id):
                 row = cur.fetchone()
                 if not row:
                     return jsonify({"message": "Bilhete não encontrado."}), 404 
-
-                voo_id, no_serie, prim_classe, lugar_atual = row
+                
+                voo_id, prim_classe, lugar_atual = row
+                
                 if lugar_atual is not None:
                     return jsonify({"message": "Check-in já efetuado para este bilhete."}), 400
+                
+                no_serie = getNoSerie(cur,voo_id)
+                if no_serie is None:
+                    return jsonify({"message": "Erro ao atribuir no_serie."}), 500 
+
 
                 lugar = getSeat(cur, voo_id, no_serie, prim_classe)
-
                 if lugar is None:
                     return jsonify({"message": "Erro ao atribuir lugar."}), 500 
+             
 
                 cur.execute(
                     """
                         UPDATE bilhete
-                        SET lugar = %(lugar)s
+                        SET lugar = %(lugar)s, no_serie = %(no_serie)s
                         WHERE id = %(bilhete_id)s
                     """,
                     {
                         "lugar": lugar,
                         "bilhete_id": bilhete_id,
+                        "no_serie":no_serie,
                     }
                 )
                 

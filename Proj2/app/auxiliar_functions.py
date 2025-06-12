@@ -1,5 +1,18 @@
 import datetime
 
+def checkAeroport(cur,codigo):
+    cur.execute(
+        """
+            SELECT * FROM aeroporto 
+            WHERE codigo = %(codigo)s
+        """, 
+        {"codigo":codigo}
+    )
+    row = cur.fetchone()
+    if not row:
+        return False
+    return True
+
 def checkClassTickets(cur, voo_id, numClassToBuy, prim_classe):
     #if first class, prim_classe = True; if second class, prim_classe = False
     #verifies how many class tickets have been sold
@@ -77,21 +90,6 @@ def createVenda(cur, nif_cliente):
     
 def createTickets(cur, voo_id, pairs, nif_cliente, tempo_voo):
     #creates <bilhete>
-    cur.execute(
-        """
-            SELECT no_serie FROM voo
-            WHERE id = %(voo_id)s
-            LIMIT 1
-        """,
-        {
-            "voo_id":voo_id,
-        } 
-    )
-    row = cur.fetchone()
-    if not row:
-        return False
-    no_serie = row[0]
-    
     codigo_reserva = createVenda(cur, nif_cliente)
     listTicketsIds = []
     for pair in pairs:
@@ -106,17 +104,16 @@ def createTickets(cur, voo_id, pairs, nif_cliente, tempo_voo):
             
         cur.execute(
             """
-                INSERT INTO bilhete (voo_id, codigo_reserva, nome_passegeiro, preco, prim_classe, lugar, no_serie)
+                INSERT INTO bilhete (voo_id, codigo_reserva, nome_passegeiro, preco, prim_classe)
                 VALUES (
-                    %(voo_id)s,%(codigo_reserva)s,%(nome_passegeiro)s,%(preco)s,
-                        %(prim_classe)s,%(lugar)s,%(no_serie)s
+                    %(voo_id)s,%(codigo_reserva)s,%(nome_passegeiro)s,
+                    %(preco)s,%(prim_classe)s
                 )
                 RETURNING id
             """,
             {
-                "voo_id":voo_id, "codigo_reserva":codigo_reserva, 
-                "nome_passegeiro":nome_passageiro, "preco":preco, "prim_classe":prim_classe,
-                "lugar": None,"no_serie":no_serie,
+                "voo_id":voo_id, "codigo_reserva":codigo_reserva,"nome_passegeiro":nome_passageiro, 
+                "preco":preco, "prim_classe":prim_classe,
             }
         )
         idBilhete = cur.fetchone()[0] 
@@ -184,3 +181,19 @@ def getSeat(cur,voo_id,no_serie,prim_classe):
     )
     row = cur.fetchone()
     return row[0] if row else None
+
+def getNoSerie(cur,voo_id):
+    cur.execute(
+        """
+            SELECT no_serie FROM voo
+            WHERE id = %(voo_id)s
+            LIMIT 1
+        """,
+        {
+            "voo_id":voo_id,
+        } 
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    return row[0]
