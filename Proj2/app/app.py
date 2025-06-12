@@ -1,65 +1,10 @@
 #!/usr/bin/python3
-import os
-from logging.config import dictConfig
-import datetime
-import json
-
-from flask import Flask, jsonify, request
-from flask_limiter import Limiter
-from flask_limiter.util import get_remote_address
-from psycopg.rows import namedtuple_row
-from psycopg_pool import ConnectionPool
-
-dictConfig(
-    {
-        "version": 1,
-        "formatters": {
-            "default": {
-                "format": "[%(asctime)s] %(levelname)s in %(module)s:%(lineno)s - %(funcName)20s(): %(message)s",
-            }
-        },
-        "handlers": {
-            "wsgi": {
-                "class": "logging.StreamHandler",
-                "stream": "ext://flask.logging.wsgi_errors_stream",
-                "formatter": "default",
-            }
-        },
-        "root": {"level": "INFO", "handlers": ["wsgi"]},
-    }
-)
-
-RATELIMIT_STORAGE_URI = os.environ.get("RATELIMIT_STORAGE_URI", "memory://")
-
-app = Flask(__name__)
-app.config.from_prefixed_env()
-log = app.logger
-limiter = Limiter(
-    get_remote_address,
-    app=app,
-    default_limits=["200 per day", "50 per hour"],
-    storage_uri=RATELIMIT_STORAGE_URI,
-)
-
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgres://proj:proj@postgres/proj")
-
-pool = ConnectionPool(
-    conninfo=DATABASE_URL,
-    kwargs={
-        "autocommit": True,  # If True don’t start transactions automatically.
-        "row_factory": namedtuple_row,
-    },
-    min_size=4,
-    max_size=10,
-    open=True,
-    # check=ConnectionPool.check_connection,
-    name="postgres_pool",
-    timeout=5,
-)
-
+from config_stuff import *
+from auxiliar_functions import *
 
 @app.route("/", methods=("GET",))
-def aeroport_index():
+@limiter.limit("1 per second")
+def list_aeroports():
     """Show all the aeroports (name and city)"""
 
     with pool.connection() as conn:
@@ -74,11 +19,20 @@ def aeroport_index():
             
     if not aeroports:
         return jsonify({"message": "No aeroports found.", "status": "error"}), 404
+    
+    aeroport_list = [
+        {
+            "nome": aeroport[0],
+            "cidade": aeroport[1],
+        }
+        for aeroport in aeroports
+    ]
 
-    return jsonify(aeroports), 200
+    return jsonify(aeroport_list), 200
 
 
 @app.route("/voos/<partida>/", methods=("GET",))
+@limiter.limit("1 per second")
 def show_flights_12hour(partida):
     """Show every flight that leave the aeroport <partida> until 12h from the moment of search."""
     """flight = (no_serie, hora_partida, chegada)"""
@@ -114,6 +68,7 @@ def show_flights_12hour(partida):
 
 
 @app.route("/voos/<partida>/<chegada>/", methods=("GET",))
+@limiter.limit("1 per second")
 def show_3_flights_with_tickets(partida, chegada):
     """Shows the next 3 flights between <partida> and <chegada> that still have tickets available to purchase"""
     """flight = (no_serie, hora_partida)"""
@@ -157,174 +112,20 @@ def show_3_flights_with_tickets(partida, chegada):
     if not flights:
         return jsonify({"message": "No flights found with tickets available between those two airports.", "status": "error"}), 404
 
-    return jsonify(flights), 200
-
-    
-def checkClassTickets(cur, voo_id, numClassToBuy, prim_classe):
-    #if first class, prim_classe = True; if second class, prim_classe = False
-    #verifies how many class tickets have been sold
-    cur.execute(
-        """
-            SELECT COUNT(*) FROM bilhete 
-            WHERE voo_id = %(voo_id)s
-            AND prim_classe = %(prim_classe)s
-        """, 
-        {"voo_id":voo_id,"prim_classe":prim_classe}
-    )
-    row = cur.fetchone()
-    if not row:
-        return False
-    bilhetes_vendidos_classe = row[0]
-    
-    #verifies how many class seats there are on the plane
-    cur.execute(
-        """
-            SELECT COUNT(*) FROM assento 
-            WHERE no_serie = (
-                SELECT no_serie FROM voo 
-                WHERE id = %(voo_id)s
-            )
-            AND prim_classe = %(prim_classe)s
-        """, 
-        {"voo_id":voo_id,"prim_classe":prim_classe}
-    )
-    row = cur.fetchone()
-    if not row:
-        return False
-    total_assentos_classe = row[0]
-    
-    if numClassToBuy+bilhetes_vendidos_classe<=total_assentos_classe:
-        return True
-    return False
-
-def verifyTicketsAvailability(cur, voo_id, pairs):
-    numFirstClassToBuy = 0
-    numSecondClassToBuy = 0
-    for pair in pairs:
-        # pair = (nome_passageiro, classe de bilhete)
-        if pair[1]:
-            #the ticket is first class
-            numFirstClassToBuy+=1
-        else:
-            #the ticket is second class
-            numSecondClassToBuy+=1
-            
-    if not checkClassTickets(cur, voo_id, numFirstClassToBuy, True):
-        #no availability for first class tickets
-        return False
-    
-    if not checkClassTickets(cur, voo_id, numSecondClassToBuy, False):
-        #no availability for second class tickets
-        return False
-    
-    return True
-
-def createVenda(cur, nif_cliente): 
-    #creates <venda>
-    cur.execute(
-        """
-            INSERT INTO venda (nif_cliente, balcao, hora)
-            VALUES (%(nif_cliente)s, %(balcao)s, %(hora)s)
-            RETURNING codigo_reserva;
-        """, 
+    flight_list = [
         {
-            "nif_cliente":nif_cliente,"balcao":None, "hora":datetime.datetime.now()
+            "no_serie": flight[0],
+            "hora_partida": flight[1].isoformat(),
         }
-    )
-    codigo_reserva = cur.fetchone()[0]
-    return codigo_reserva
+        for flight in flights
+    ]
     
-def createTickets(cur, voo_id, pairs, nif_cliente, tempo_voo):
-    cur.execute(
-        """
-            SELECT no_serie FROM voo
-            WHERE id = %(voo_id)s
-            LIMIT 1
-        """,
-        {
-            "voo_id":voo_id,
-        } 
-    )
-    row = cur.fetchone()
-    if not row:
-        return False
-    no_serie = row[0]
-    
-    codigo_reserva = createVenda(cur, nif_cliente)
-    listTicketsIds = []
-    for pair in pairs:
-        # pair = (nome_passageiro, classe de bilhete)
-        #creates <bilhete>
-        nome_passageiro = pair[0]
-        prim_classe = pair[1]
-        if prim_classe:
-            preco = 60 * tempo_voo
-        else:
-            preco = 40 * tempo_voo
-            
-        cur.execute(
-            """
-                INSERT INTO bilhete (voo_id, codigo_reserva, nome_passegeiro, preco, prim_classe, lugar, no_serie)
-                VALUES (
-                    %(voo_id)s,%(codigo_reserva)s,%(nome_passegeiro)s,%(preco)s,
-                        %(prim_classe)s,%(lugar)s,%(no_serie)s
-                )
-                RETURNING id
-            """,
-            {
-                "voo_id":voo_id, "codigo_reserva":codigo_reserva, 
-                "nome_passegeiro":nome_passageiro, "preco":preco, "prim_classe":prim_classe,
-                "lugar": None,"no_serie":no_serie,
-            }
-        )
-        idBilhete = cur.fetchone()[0] 
-        listTicketsIds.append(idBilhete)
-    return listTicketsIds
-        
-        
-def calculateTempoVoo(cur, voo_id):
-    cur.execute(
-        """
-            SELECT hora_partida, hora_chegada FROM voo
-            WHERE id = %(voo_id)s
-            LIMIT 1
-        """,
-        {
-            "voo_id":voo_id,
-        } 
-    )
-    
-    row = cur.fetchone()
-    if row:
-        partida, chegada = row
-        #today = datetime.datetime.today()
-        #partida_dt = datetime.datetime.combine(today, partida)
-        #chegada_dt = datetime.datetime.combine(today, chegada)
-        #tempo_voo = (chegada_dt - partida_dt).seconds / 3600  # em horas
-        tempo_voo = (chegada - partida).total_seconds() / 3600
-        return tempo_voo
-    else:
-        return 0
-
-def getFlight(cur, voo_id):
-    cur.execute(
-        """
-            SELECT * FROM voo
-            WHERE id = %(voo_id)s
-            LIMIT 1
-        """,
-        {
-            "voo_id":voo_id,
-        } 
-    )
-    row = cur.fetchone()
-    if not row:
-        return None
-    return row
+    return jsonify(flight_list), 200
 
 @app.route(
     "/compra/<int:voo_id>/",methods=("POST",),
 )
+@limiter.limit("1 per second")
 def buyTickets(voo_id):
     """Buys one or more tickets for <voo> populating <venda> and <bilhete>."""
     """Receives as arguments nif_cliente, and a list of pairs (nome_passageiro, classe de bilhete)"""
@@ -387,31 +188,10 @@ def buyTickets(voo_id):
 
     return jsonify({"message": "Bilhetes comprados com sucesso", "Ids": listTicketsId}), 201
 
-def getSeat(cur,voo_id,no_serie,prim_classe):
-    cur.execute(
-        """
-        SELECT assento.lugar
-        FROM assento
-        WHERE assento.no_serie = %(no_serie)s
-        AND assento.prim_classe = %(prim_classe)s
-        AND NOT EXISTS (
-            SELECT 1
-            FROM bilhete
-            WHERE bilhete.no_serie = assento.no_serie 
-            AND bilhete.lugar = assento.lugar
-            AND bilhete.voo_id = %(voo_id)s
-        )
-        LIMIT 1
-        FOR UPDATE
-        """,
-        {"no_serie": no_serie, "prim_classe": prim_classe, "voo_id": voo_id}
-    )
-    row = cur.fetchone()
-    return row[0] if row else None
-
 @app.route(
     "/checkin/<int:bilhete_id>/",methods=("POST",),
 )
+@limiter.limit("1 per second")
 def do_checkIn_ticket(bilhete_id):
     """Does a checkIn of a ticket, giving him the seat from the correspondent class"""
 
