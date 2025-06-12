@@ -5,16 +5,16 @@ meta {
 }
 
 post {
-  url: http://localhost:8080/compra/:partida/?nif_cliente&pairs
+  url: http://localhost:8080/compra/:voo_id/?nif_cliente=123456789&pairs=[["maria joão",false],["joão maria",false]]
   body: none
   auth: inherit
 }
 
 params:query {
-  nif_cliente: 
-  pairs: 
+  nif_cliente: 123456789
+  pairs: [["maria joão",false],["joão maria",false]]
 }
 
 params:path {
-  partida: 
+  voo_id: 1316
 }
