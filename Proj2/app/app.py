@@ -18,7 +18,7 @@ def list_aeroports():
             ).fetchall()
             
     if not aeroports:
-        return jsonify({"message": "No aeroports found.", "status": "error"}), 404
+        return jsonify({"message": "Não foi encontrado nenhum aeroporto.", "status": "error"}), 404
     
     aeroport_list = [
         {
@@ -43,7 +43,7 @@ def show_flights_12hour(partida):
         with conn.cursor() as cur:
             
             if not checkAeroport(cur,partida):
-                return jsonify({"message": "Aeroport not found."}), 404
+                return jsonify({"message": "Aeroporto não encontrado."}), 404
             
             flights = cur.execute(
                 """
@@ -57,7 +57,7 @@ def show_flights_12hour(partida):
             ).fetchall()
 
     if not flights:
-        return jsonify({"message": "No flights found."}), 200
+        return jsonify({"message": "Não foi encontrado nenhum voo."}), 200
 
     flight_list = [
         {
@@ -86,9 +86,9 @@ def show_3_flights_with_tickets(partida, chegada):
     with pool.connection() as conn:
         with conn.cursor() as cur:
             if not checkAeroport(cur,partida):
-                return jsonify({"message": "Aeroport not found."}), 404
+                return jsonify({"message": "Aeroporto de partida não encontrado."}), 404
             if not checkAeroport(cur,chegada):
-                return jsonify({"message": "Aeroport not found."}), 404
+                return jsonify({"message": "Aeroporto de chegada não encontrado."}), 404
             
             flights = cur.execute(
                 """
@@ -121,7 +121,7 @@ def show_3_flights_with_tickets(partida, chegada):
             ).fetchall()
 
     if not flights:
-        return jsonify({"message": "No flights found with tickets available between those two airports.", "status": "error"}), 404
+        return jsonify({"message": "Não foi encontrado nenhum voo com bilhetes disponíveis entre os aeroportos.", "status": "error"}), 404
 
     flight_list = [
         {
@@ -141,39 +141,36 @@ def show_3_flights_with_tickets(partida, chegada):
 def buyTickets(voo_id):
     """Buys one or more tickets for <voo> populating <venda> and <bilhete>."""
     """Receives as arguments nif_cliente, and a list of pairs (nome_passageiro, classe de bilhete)"""
-
-    nif_cliente = request.args.get("nif_cliente")
     
+    data = request.get_json()
+    if not data:
+        return jsonify({"message": "Corpo do pedido em falta ou inválido", "status": "error"}), 400
+
+    nif_cliente = data.get("nif_cliente")
     if not nif_cliente:
         return jsonify({"message": "Dados incompletos", "status": "error"}), 400
     
     try:
-        int(nif_cliente)
+        test = int(nif_cliente)
+        if len(str(test))!=9:
+            return jsonify({"message": "Nif inválido."}), 400
     except:
         return jsonify({"message": "Nif inválido."}), 400
     
-    if len(nif_cliente)!=9:
-        return jsonify({"message": "Nif inválido."}), 400
     
-    pairs_jsonList = request.args.get("pairs")
-    
-    if not pairs_jsonList:
+    pairs = data.get("pairs")
+    if not pairs:
         return jsonify({"message": "Dados incompletos", "status": "error"}), 400
     
-    try:
-        pairs = json.loads(pairs_jsonList)
-    except json.JSONDecodeError:
-        return jsonify({"message": "Formato inválido para pairs", "status": "error"}), 400
-    
     for pair in pairs:
-        if not len(pair)==2:
-            return jsonify({"message": "Dados inválidos."}), 400
+        if not isinstance(pair, list) or len(pair) != 2:
+            return jsonify({"message": "Par inválido."}), 400
         
         if not isinstance(pair[0],str):
-            return jsonify({"message": "Dados inválidos."}), 400
+            return jsonify({"message": "O par tem de ter uma string como primeiro argumento."}), 400
         
         if not isinstance(pair[1],bool):
-            return jsonify({"message": "Dados inválidos."}), 400
+            return jsonify({"message": "O par tem de ter um bool como segundo argumento."}), 400
 
     try:
         with pool.connection() as conn:
