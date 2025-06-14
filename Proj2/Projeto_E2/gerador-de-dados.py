@@ -137,7 +137,7 @@ class Voo:
     id_counter = 1
 
     def __init__(self, aviao: Aviao, hora_partida: datetime, hora_chegada: datetime,
-                 aero_partida: Aeroporto, aero_chegada: Aeroporto):
+                 aero_partida: Aeroporto, aero_chegada: Aeroporto, nao_adicionar: bool = False):
         self.id = Voo.id_counter
         self.aviao = aviao
         self.hora_partida = hora_partida
@@ -147,9 +147,10 @@ class Voo:
 
         self.preco_prim_classe, self.preco_seg_classe = self.definirPrecos()
         self.vendas: list[Venda] = []
-        Voo.id_counter += 1
 
-        Voo.sql_lista += f"    ('{self.aviao.no_serie}', {timestamp(self.hora_partida)}, {timestamp(self.hora_chegada)}, '{self.aero_partida.codigo}', '{self.aero_chegada.codigo}'),\n"
+        if not nao_adicionar:
+            Voo.id_counter += 1
+            Voo.sql_lista += f"    ('{self.aviao.no_serie}', {timestamp(self.hora_partida)}, {timestamp(self.hora_chegada)}, '{self.aero_partida.codigo}', '{self.aero_chegada.codigo}'),\n"
 
     def definirPrecos(self) -> tuple[float, float]:
         tempo_voo = self.aero_partida.tempoDeVoo(self.aero_chegada) / 60
@@ -323,7 +324,7 @@ def criarVooVolta(voo_ida: Voo) -> Voo:
     aero_partida = voo_ida.aero_chegada
     aero_chegada = voo_ida.aero_partida
     tempo_voo = aero_partida.tempoDeVoo(aero_chegada)
-    hora_partida = voo_ida.hora_chegada + timedelta(minutes=aleatorioDistrNormal(30, 240))
+    hora_partida = voo_ida.hora_chegada + timedelta(minutes=aleatorioDistrNormal(30, 180))
     hora_chegada = hora_partida + timedelta(minutes=tempo_voo)
     return Voo(voo_ida.aviao, hora_partida, hora_chegada, aero_partida, aero_chegada)
     
@@ -352,7 +353,7 @@ def gerarVoo(data: date, hora_partida_partida_chegada: set, hora_chegada_partida
     VOOS.append(voo_volta)
 
 
-def gerarVooRotaObrigatoria(aviao: Aviao, sentido: bool) -> tuple[bool, date]:
+def gerarVooRotaObrigatoria(aviao: Aviao, sentido: bool, data: date) -> tuple[bool, date]:
     global AEROPORTOS, AEROPORTOS_NAO_USADOS, VOOS
     i, j = 0, 1
     if sentido: i, j = 1, 0
@@ -360,13 +361,16 @@ def gerarVooRotaObrigatoria(aviao: Aviao, sentido: bool) -> tuple[bool, date]:
     aero_chegada = Aviao.rota_obrigatoria[j]
 
     hora_partida = aero_partida.ultima_partida
-    if aviao.ultimo_voo is not None: hora_partida = max(aviao.ultimo_voo.hora_chegada, hora_partida)
+    if aviao.ultimo_voo is not None: hora_partida = max(aviao.ultimo_voo.hora_chegada, hora_partida,
+                                                        datetime.combine(data, time(0, 0)))
     hora_partida += timedelta(minutes=5)
 
     tempo_voo = aero_partida.tempoDeVoo(aero_chegada)
     hora_chegada = hora_partida + timedelta(minutes=tempo_voo)
 
     voo = Voo(aviao, hora_partida, hora_chegada, aero_partida, aero_chegada)
+
+    gerarVendas(voo)
 
     VOOS.append(voo)
 
@@ -375,7 +379,7 @@ def gerarVooRotaObrigatoria(aviao: Aviao, sentido: bool) -> tuple[bool, date]:
     # Para o avião voltar ao normal depois de fazer a rota obrigatória
     if aviao.ultimo_voo is None: aero = obterAleatorio(AEROPORTOS, AEROPORTOS_NAO_USADOS)
     else: aero = aviao.ultimo_voo.aero_chegada
-    voo_falso = Voo(aviao, hora_partida, hora_chegada, aero_chegada, aero)
+    voo_falso = Voo(aviao, hora_partida, hora_chegada + timedelta(days=1), AEROPORTOS[10], aero, nao_adicionar=True)
 
     aero_chegada.ultima_partida = hora_partida
     aviao.ultimo_voo = voo_falso
@@ -537,7 +541,7 @@ AEROPORTOS = (
     Aeroporto("DUB", "Dublin Airport", "Dublin", "Irlanda", 53.4213, -6.2701)
 )
 
-Aviao.definirRotaObrigatoria(AEROPORTOS[0], AEROPORTOS[6])
+Aviao.definirRotaObrigatoria(AEROPORTOS[0], AEROPORTOS[6]) # LHR - MUC
 
 
 print("A gerar os Aviões")
@@ -573,7 +577,7 @@ while data <= DATA_FIM:
         while Aviao.ainda_nao_cumpriram:
             if i >= MAX: raise ValueError("Conflito com as datas na rota obrigatória")
             aviao = Aviao.ainda_nao_cumpriram[-1]
-            sentido, data = gerarVooRotaObrigatoria(aviao, sentido)
+            sentido, data = gerarVooRotaObrigatoria(aviao, sentido, data)
             Aviao.ainda_nao_cumpriram.pop()
             i += 1        
         data += timedelta(days=1)
