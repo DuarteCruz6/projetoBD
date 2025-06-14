@@ -360,7 +360,7 @@ def gerarVooRotaObrigatoria(aviao: Aviao, sentido: bool) -> tuple[bool, date]:
     aero_chegada = Aviao.rota_obrigatoria[j]
 
     hora_partida = aero_partida.ultima_partida
-    if aviao.ultimo_voo is not None: hora_partida =  max(aviao.ultimo_voo.hora_chegada, hora_partida)
+    if aviao.ultimo_voo is not None: hora_partida = max(aviao.ultimo_voo.hora_chegada, hora_partida)
     hora_partida += timedelta(minutes=5)
 
     tempo_voo = aero_partida.tempoDeVoo(aero_chegada)
@@ -375,7 +375,7 @@ def gerarVooRotaObrigatoria(aviao: Aviao, sentido: bool) -> tuple[bool, date]:
     # Para o avião voltar ao normal depois de fazer a rota obrigatória
     if aviao.ultimo_voo is None: aero = obterAleatorio(AEROPORTOS, AEROPORTOS_NAO_USADOS)
     else: aero = aviao.ultimo_voo.aero_chegada
-    voo_falso = Voo(aviao, hora_partida, hora_chegada, aero_chegada, aero, )
+    voo_falso = Voo(aviao, hora_partida, hora_chegada, aero_chegada, aero)
 
     aero_chegada.ultima_partida = hora_partida
     aviao.ultimo_voo = voo_falso
@@ -569,12 +569,13 @@ rota_obrigatoria_data = (DATAHORA_ATUAL - timedelta(days=90)).date()
 while data <= DATA_FIM:
 
     if data == rota_obrigatoria_data:
-        data += timedelta(days=1)
+        i = 0
         while Aviao.ainda_nao_cumpriram:
+            if i >= MAX: raise ValueError("Conflito com as datas na rota obrigatória")
             aviao = Aviao.ainda_nao_cumpriram[-1]
             sentido, data = gerarVooRotaObrigatoria(aviao, sentido)
             Aviao.ainda_nao_cumpriram.pop()
-        
+            i += 1        
         data += timedelta(days=1)
         continue
 
