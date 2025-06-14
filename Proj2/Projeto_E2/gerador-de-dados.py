@@ -5,7 +5,9 @@ import random
 inicio = t.time()
 
 MAX = 1000000
-DATA_MAX = datetime(2025, 6, 17, 8, 0)
+DATA_INICIO = date(2025, 1, 1)
+DATAHORA_ATUAL = datetime(2025, 6, 17, 8, 0)
+DATA_FIM = date(2025, 7, 31)
 
 def insert(tabela: str) -> str:
     return f"INSERT INTO {tabela} VALUES\n"
@@ -36,6 +38,7 @@ class Aeroporto:
     sql_lista = [insert("aeroporto (codigo, nome, cidade, pais)")]
 
     def __init__(self, codigo: str, nome: str, cidade: str, pais: str, x: float, y: float):
+        global DATA_INICIO
         self.codigo = codigo
         self.nome = nome
         self.cidade = cidade
@@ -43,6 +46,7 @@ class Aeroporto:
 
         self.x = x
         self.y = y
+        self.ultima_partida = datetime.combine(DATA_INICIO, time(0, 0))
         Aeroporto.sql_lista += f"    ('{self.codigo}', '{self.nome}', '{self.cidade}', '{self.pais}'),\n"
 
     def tempoDeVoo(self, outro: 'Aeroporto'):
@@ -61,6 +65,8 @@ class Aeroporto:
 
 class Aviao:
     sql_lista = [insert("aviao (no_serie, modelo)")]
+    ainda_nao_cumpriram = []
+    rota_obrigatoria = ()
 
     def __init__(self, no_serie: int, modelo: str):
         self.no_serie = no_serie
@@ -68,7 +74,8 @@ class Aviao:
 
         self.assentos = self.gerarAssentos()
         self.ultimo_voo: Voo|None = None
-
+        
+        Aviao.ainda_nao_cumpriram.append(self)
         Aviao.sql_lista += f"    ('{self.no_serie}', '{self.modelo}'),\n"
 
     def gerarAssentos(self) -> tuple['Assento']:
@@ -94,6 +101,10 @@ class Aviao:
     
     def numAssentos(self) -> int:
         return len(self.assentos)
+
+    @staticmethod
+    def definirRotaObrigatoria(aero1: Aeroporto, aero2: Aeroporto):
+        Aviao.rota_obrigatoria = (aero1, aero2)
     
     @staticmethod
     def SQL(): return sqlListaParaStr(Aviao.sql_lista)
@@ -243,9 +254,9 @@ def obterAleatorio(opcoes: tuple, nao_usados: list, excluir=None):
     
 
 def datetimeAleatorio(inicio: datetime, fim: datetime, max_atual: bool = False):
-    global DATA_MAX
+    global DATAHORA_ATUAL
     if not max_atual: delta = fim - inicio
-    else: delta = min(DATA_MAX, fim) - inicio
+    else: delta = min(DATAHORA_ATUAL, fim) - inicio
     segundos_totais = int(delta.total_seconds())
     if segundos_totais < 0: raise ValueError("Data de início posterior à de fim")
     segundos_aleatorios = random.randint(0, segundos_totais)
@@ -254,6 +265,7 @@ def datetimeAleatorio(inicio: datetime, fim: datetime, max_atual: bool = False):
 
 def obterAviao(data: date, excluir=None) -> Aviao:
     global AVIOES, AVIOES_NAO_USADOS, MAX
+
     avioes = list(AVIOES)
     if excluir is not None: avioes.remove(excluir)
     i = 0
@@ -267,12 +279,13 @@ def obterAviao(data: date, excluir=None) -> Aviao:
     raise ValueError("Nenhum avião disponível")
 
 
-def obterAeroportoChegada(aero_partida: Aeroporto) -> Aeroporto:
+def obterAeroportoChegada(aero_partida: Aeroporto, data: date) -> Aeroporto:
     global AEROPORTOS, AEROPORTOS_NAO_USADOS, MAX
     i = 0
     while i < MAX:
-        aero_chegada = obterAleatorio(AEROPORTOS, AEROPORTOS_NAO_USADOS, excluir=aero_partida)
-        if aero_partida.cidade != aero_chegada.cidade: return aero_chegada
+        aero_chegada: Aeroporto = obterAleatorio(AEROPORTOS, AEROPORTOS_NAO_USADOS, excluir=aero_partida)
+        if aero_partida.cidade != aero_chegada.cidade and aero_chegada.ultima_partida.date() <= data:
+            return aero_chegada
         i += 1
 
     raise ValueError("Não há aeroportos de chegada disponíveis")
@@ -286,7 +299,7 @@ def obterHorasVoo(data: date, aviao: Aviao, aero_partida: Aeroporto, aero_chegad
                   hora_partida_partida_chegada: set, hora_chegada_partida_chegada: set) -> tuple[datetime, datetime]:
     global MAX
     hora_maxima = datetime.combine(data, time(23, 59))
-    hora_minima = datetime.combine(data, time(0, 0))
+    hora_minima = max(datetime.combine(data, time(0, 0)), aero_chegada.ultima_partida)
     if aviao.ultimo_voo is not None and aviao.ultimo_voo.hora_chegada.date() == data:
         hora_minima = aviao.ultimo_voo.hora_chegada + timedelta(minutes=30)
 
@@ -320,7 +333,7 @@ def gerarVoo(data: date, hora_partida_partida_chegada: set, hora_chegada_partida
 
     aviao = obterAviao(data)
     aero_partida = aviao.obterAeroportoDePartida()
-    aero_chegada = obterAeroportoChegada(aero_partida)
+    aero_chegada = obterAeroportoChegada(aero_partida, data)
 
     hora_partida, hora_chegada = obterHorasVoo(data, aviao, aero_partida, aero_chegada,
                                                hora_partida_partida_chegada, hora_chegada_partida_chegada)
@@ -331,10 +344,43 @@ def gerarVoo(data: date, hora_partida_partida_chegada: set, hora_chegada_partida
     voo_volta = criarVooVolta(voo_ida)
     gerarVendas(voo_volta)
 
+    # Para não permitir partidas entre o voo de ida e o de volta
+    aero_chegada.ultima_partida = voo_volta.hora_partida
+
     aviao.ultimo_voo = voo_volta
     VOOS.append(voo_ida)
     VOOS.append(voo_volta)
 
+
+def gerarVooRotaObrigatoria(aviao: Aviao, sentido: bool) -> tuple[bool, date]:
+    global AEROPORTOS, AEROPORTOS_NAO_USADOS, VOOS
+    i, j = 0, 1
+    if sentido: i, j = 1, 0
+    aero_partida = Aviao.rota_obrigatoria[i]
+    aero_chegada = Aviao.rota_obrigatoria[j]
+
+    hora_partida = aero_partida.ultima_partida
+    if aviao.ultimo_voo is not None: hora_partida =  max(aviao.ultimo_voo.hora_chegada, hora_partida)
+    hora_partida += timedelta(minutes=5)
+
+    tempo_voo = aero_partida.tempoDeVoo(aero_chegada)
+    hora_chegada = hora_partida + timedelta(minutes=tempo_voo)
+
+    voo = Voo(aviao, hora_partida, hora_chegada, aero_partida, aero_chegada)
+
+    VOOS.append(voo)
+
+    aero_partida.ultima_partida = hora_partida
+
+    # Para o avião voltar ao normal depois de fazer a rota obrigatória
+    if aviao.ultimo_voo is None: aero = obterAleatorio(AEROPORTOS, AEROPORTOS_NAO_USADOS)
+    else: aero = aviao.ultimo_voo.aero_chegada
+    voo_falso = Voo(aviao, hora_partida, hora_chegada, aero_chegada, aero, )
+
+    aero_chegada.ultima_partida = hora_partida
+    aviao.ultimo_voo = voo_falso
+
+    return not sentido, hora_chegada.date()
 
 
 ######################## Vendas ########################
@@ -388,13 +434,13 @@ def gerarNome(nomes_ja_gerados: list[str]) -> str:
 
 def atribuirAssento(venda: Venda, assentos_disponiveis: list[Assento],
                     forcar_prim_classe: bool, forcar_seg_classe: bool) -> tuple[Assento|None, bool, bool, bool]:
-    global DATA_MAX
+    global DATAHORA_ATUAL
 
-    min_check_in_date = DATA_MAX + timedelta(days=2)
+    min_check_in_date = DATAHORA_ATUAL + timedelta(days=2)
     prim_classe = False
     checked_in = True
 
-    if venda.voo.hora_partida > min_check_in_date or (venda.voo.hora_partida > DATA_MAX and random.random() < 0.5):
+    if venda.voo.hora_partida > min_check_in_date or (venda.voo.hora_partida > DATAHORA_ATUAL and random.random() < 0.5):
         checked_in = False
 
     if forcar_prim_classe:
@@ -491,6 +537,8 @@ AEROPORTOS = (
     Aeroporto("DUB", "Dublin Airport", "Dublin", "Irlanda", 53.4213, -6.2701)
 )
 
+Aviao.definirRotaObrigatoria(AEROPORTOS[0], AEROPORTOS[6])
+
 
 print("A gerar os Aviões")
 
@@ -511,20 +559,33 @@ VOOS: list[Voo] = []
 print("A gerar voos e respetivas vendas e bilhetes")
 
 # Gerar voos, vendas e bilhetes
-data = date(2025, 1, 1)
-data_fim = date(2025, 7, 31)
+data = DATA_INICIO
 
 hora_partida_partida_chegada = set()
 hora_chegada_partida_chegada = set()
+sentido = False
+rota_obrigatoria_data = (DATAHORA_ATUAL - timedelta(days=90)).date()
 
-while data <= data_fim:
+while data <= DATA_FIM:
+
+    if data == rota_obrigatoria_data:
+        data += timedelta(days=1)
+        while Aviao.ainda_nao_cumpriram:
+            aviao = Aviao.ainda_nao_cumpriram[-1]
+            sentido, data = gerarVooRotaObrigatoria(aviao, sentido)
+            Aviao.ainda_nao_cumpriram.pop()
+        
+        data += timedelta(days=1)
+        continue
+
     for _ in range(random.randint(3, 5)):
         gerarVoo(data, hora_partida_partida_chegada, hora_chegada_partida_chegada)
     data += timedelta(days=1)
 
-print("A verificar restrições")
+
 
 # Verificar restrições
+print("A verificar restrições")
 
 if AVIOES_NAO_USADOS: raise ValueError("Há aviões não usados")
 if AEROPORTOS_NAO_USADOS: raise ValueError("Há aeroportos não usados")
