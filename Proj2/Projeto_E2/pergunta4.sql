@@ -1,4 +1,5 @@
 %%sql
+DROP MATERIALIZED VIEW IF EXISTS estatisticas_voos;
 CREATE MATERIALIZED VIEW estatisticas_voos AS
 WITH AssentosPorAviao AS (
     SELECT
