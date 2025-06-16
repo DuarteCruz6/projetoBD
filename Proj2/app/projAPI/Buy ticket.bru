@@ -5,16 +5,24 @@ meta {
 }
 
 post {
-  url: http://localhost:8080/compra/:voo_id/?nif_cliente=123456789&pairs=[["maria joão",false],["joão maria",false]]
-  body: none
+  url: http://localhost:8080/compra/:voo_id/
+  body: json
   auth: inherit
 }
 
-params:query {
-  nif_cliente: 123456789
-  pairs: [["maria joão",false],["joão maria",false]]
+params:path {
+  voo_id: 1305
 }
 
-params:path {
-  voo_id: 1316
+body:json {
+  {
+    "nif_cliente":123456789,
+    "pairs":
+      [
+        ["João Silva",true],
+        ["Gonçalo Mendes",true],
+        ["Daniel Oliveira",false],
+        ["Maria João",false]
+      ]
+  }
 }
