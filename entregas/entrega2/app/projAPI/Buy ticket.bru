@@ -1,0 +1,28 @@
+meta {
+  name: Buy ticket
+  type: http
+  seq: 7
+}
+
+post {
+  url: http://localhost:8080/compra/:voo_id/
+  body: json
+  auth: inherit
+}
+
+params:path {
+  voo_id: 1305
+}
+
+body:json {
+  {
+    "nif_cliente":123456789,
+    "pairs":
+      [
+        ["João Silva",true],
+        ["Gonçalo Mendes",true],
+        ["Daniel Oliveira",false],
+        ["Maria João",false]
+      ]
+  }
+}
