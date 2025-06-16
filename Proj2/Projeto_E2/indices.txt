@@ -1,0 +1,203 @@
+ÍNDICES:
+
+CREATE INDEX idx_no_serie ON estatisticas_voos (no_serie);   DROP INDEX idx_no_serie;
+CREATE INDEX idx_hora_partida ON estatisticas_voos (hora_partida);   DROP INDEX idx_hora_partida;
+CREATE INDEX idx_localizacao ON estatisticas_voos (pais_partida, pais_chegada, cidade_partida, cidade_chegada);
+DROP INDEX idx_localizacao;
+
+
+Para forçar o uso dos índices:
+SET enable_seqscan = OFF; (NÃO ESQUECER DE VOLTAR A PÔR ON)
+
+APAGAR TODOS OS ÍNDICES:
+DO $$
+DECLARE
+    r RECORD;
+BEGIN
+    FOR r IN
+        SELECT indexname
+        FROM pg_indexes
+        WHERE schemaname = 'public'  -- muda se os teus índices estiverem noutro schema
+          AND tablename = 'estatisticas_voos'  -- ou remove para todos os índices do schema
+    LOOP
+        EXECUTE format('DROP INDEX IF EXISTS %I', r.indexname);
+    END LOOP;
+END $$;
+
+
+########################## 5.1 ##########################
+
+ Subquery Scan on sub  (cost=117.81..129.34 rows=1 width=32) (actual time=1.449..1.452 rows=1 loops=1)
+   Filter: (sub.rank_preenchimento = 1)
+   ->  WindowAgg  (cost=117.81..127.20 rows=171 width=72) (actual time=1.448..1.451 rows=1 loops=1)
+         Run Condition: (dense_rank() OVER (?) <= 1)
+         ->  Sort  (cost=117.80..118.22 rows=171 width=64) (actual time=1.446..1.446 rows=2 loops=1)
+               Sort Key: (avg((((voo.passageiros_1c + voo.passageiros_2c))::numeric / ((voo.assentos_1c + voo.assentos_2c))::numeric))) DESC
+               Sort Method: quicksort  Memory: 33kB
+               ->  HashAggregate  (cost=102.91..111.45 rows=171 width=64) (actual time=1.380..1.414 rows=131 loops=1)
+                     Group Key: CASE WHEN (((voo.cidade_partida)::text < (voo.cidade_chegada)::text) OR (((voo.cidade_partida)::text = (voo.cidade_chegada)::text) AND ((voo.pais_partida)::text < (voo.pais_chegada)::text))) THEN (((((((voo.cidade_partida)::text || ', '::text) || (voo.pais_partida)::text) || ' - '::text) || (voo.cidade_chegada)::text) || ', '::text) || (voo.pais_chegada)::text) ELSE (((((((voo.cidade_chegada)::text || ', '::text) || (voo.pais_chegada)::text) || ' - '::text) || (voo.cidade_partida)::text) || ', '::text) || (voo.pais_partida)::text) END
+                     Batches: 1  Memory Usage: 96kB
+                     ->  Seq Scan on estatisticas_voos voo  (cost=0.00..92.77 rows=579 width=64) (actual time=0.013..0.832 rows=1736 loops=1)
+                           Filter: (((assentos_1c + assentos_2c) > 0) AND (hora_partida >= (CURRENT_TIMESTAMP - '1 year'::interval)))
+ Planning Time: 0.232 ms
+ Execution Time: 1.496 ms
+ 
+ 
+
+### O "WHERE sub.rank_preenchimento = 1" não faz Seq Scan, logo não precisa de índice
+
+### Seq Scan: Todos os dados aviões têm pelo menos um lugar e todos os voos são deste ano, logo todas as linhas são selecionadas, sendo mais eficiente percorrer a tabela toda do que usar índices
+
+VEREDITO: Neste, índices não fazem diferença. Faria diferência se houvessem muitos anos anteriores.
+
+
+
+
+########################## 5.2 ##########################
+
+SEM ÍNDICES (padrão):
+
+ GroupAggregate  (cost=314.57..325.34 rows=1 width=32) (actual time=2.792..2.847 rows=1 loops=1)
+   Group Key: (CASE WHEN (((voo1.cidade_partida)::text < (voo1.cidade_chegada)::text) OR (((voo1.cidade_partida)::text = (voo1.cidade_chegada)::text) AND ((voo1.pais_partida)::text < (voo1.pais_chegada)::text))) THEN (((((((voo1.cidade_partida)::text || ', '::text) || (voo1.pais_partida)::text) || ' - '::text) || (voo1.cidade_chegada)::text) || ', '::text) || (voo1.pais_chegada)::text) ELSE (((((((voo1.cidade_chegada)::text || ', '::text) || (voo1.pais_chegada)::text) || ' - '::text) || (voo1.cidade_partida)::text) || ', '::text) || (voo1.pais_partida)::text) END)
+   Filter: (count(DISTINCT voo1.no_serie) = (InitPlan 1).col1)
+   Rows Removed by Filter: 122
+   InitPlan 1
+     ->  Aggregate  (cost=151.45..151.46 rows=1 width=8) (actual time=0.831..0.832 rows=1 loops=1)
+           ->  Sort  (cost=142.77..147.11 rows=1736 width=5) (actual time=0.692..0.748 rows=1736 loops=1)
+                 Sort Key: voo2.no_serie
+                 Sort Method: quicksort  Memory: 49kB
+                 ->  Seq Scan on estatisticas_voos voo2  (cost=0.00..49.36 rows=1736 width=5) (actual time=0.005..0.136 rows=1736 loops=1)
+   ->  Sort  (cost=163.11..165.96 rows=1141 width=37) (actual time=1.836..1.873 rows=1136 loops=1)
+         Sort Key: (CASE WHEN (((voo1.cidade_partida)::text < (voo1.cidade_chegada)::text) OR (((voo1.cidade_partida)::text = (voo1.cidade_chegada)::text) AND ((voo1.pais_partida)::text < (voo1.pais_chegada)::text))) THEN (((((((voo1.cidade_partida)::text || ', '::text) || (voo1.pais_partida)::text) || ' - '::text) || (voo1.cidade_chegada)::text) || ', '::text) || (voo1.pais_chegada)::text) ELSE (((((((voo1.cidade_chegada)::text || ', '::text) || (voo1.pais_chegada)::text) || ' - '::text) || (voo1.cidade_partida)::text) || ', '::text) || (voo1.pais_partida)::text) END), voo1.no_serie
+         Sort Method: quicksort  Memory: 117kB
+         ->  Seq Scan on estatisticas_voos voo1  (cost=0.00..105.17 rows=1141 width=37) (actual time=0.013..0.587 rows=1136 loops=1)
+               Filter: (hora_partida >= (CURRENT_TIMESTAMP - '3 mons'::interval))
+               Rows Removed by Filter: 600
+ Planning Time: 0.448 ms
+ Execution Time: 2.881 ms
+(18 rows)
+
+
+
+COM OS ÍNDICES idx_hora_partida + idx_no_serie (É preciso forçar com SET enable_seqscan = OFF):
+
+ GroupAggregate  (cost=340.64..351.41 rows=1 width=32) (actual time=2.103..2.142 rows=1 loops=1)
+   Group Key: (CASE WHEN (((voo1.cidade_partida)::text < (voo1.cidade_chegada)::text) OR (((voo1.cidade_partida)::text = (voo1.cidade_chegada)::text) AND ((voo1.pais_partida)::text < (voo1.pais_chegada)::text))) THEN (((((((voo1.cidade_partida)::text || ', '::text) || (voo1.pais_partida)::text) || ' - '::text) || (voo1.cidade_chegada)::text) || ', '::text) || (voo1.pais_chegada)::text) ELSE (((((((voo1.cidade_chegada)::text || ', '::text) || (voo1.pais_chegada)::text) || ' - '::text) || (voo1.cidade_partida)::text) || ', '::text) || (voo1.pais_partida)::text) END)
+   Filter: (count(DISTINCT voo1.no_serie) = (InitPlan 1).col1)
+   Rows Removed by Filter: 122
+   InitPlan 1
+     ->  Aggregate  (cost=174.65..174.66 rows=1 width=8) (actual time=0.383..0.384 rows=1 loops=1)
+           ->  Index Only Scan using idx_no_serie on estatisticas_voos voo2  (cost=0.28..170.31 rows=1736 width=5) (actual time=0.018..0.303 rows=1736 loops=1)
+                 Heap Fetches: 1736
+   ->  Sort  (cost=165.98..168.83 rows=1141 width=37) (actual time=1.600..1.641 rows=1136 loops=1)
+         Sort Key: (CASE WHEN (((voo1.cidade_partida)::text < (voo1.cidade_chegada)::text) OR (((voo1.cidade_partida)::text = (voo1.cidade_chegada)::text) AND ((voo1.pais_partida)::text < (voo1.pais_chegada)::text))) THEN (((((((voo1.cidade_partida)::text || ', '::text) || (voo1.pais_partida)::text) || ' - '::text) || (voo1.cidade_chegada)::text) || ', '::text) || (voo1.pais_chegada)::text) ELSE (((((((voo1.cidade_chegada)::text || ', '::text) || (voo1.pais_chegada)::text) || ' - '::text) || (voo1.cidade_partida)::text) || ', '::text) || (voo1.pais_partida)::text) END), voo1.no_serie
+         Sort Method: quicksort  Memory: 117kB
+         ->  Index Scan using idx_hora_partida on estatisticas_voos voo1  (cost=0.28..108.04 rows=1141 width=37) (actual time=0.018..0.505 rows=1136 loops=1)
+               Index Cond: (hora_partida >= (CURRENT_TIMESTAMP - '3 mons'::interval))
+ Planning Time: 0.252 ms
+ Execution Time: 2.171 ms
+(15 rows)
+
+
+VEREDITO: Os índices são úteis se tivermos muitos mais dados. Com os dados que temos não faz muita diferença (o próprio query planner faz Seq Scan por não serem muitos).
+
+
+
+
+########################## 5.3 ##########################
+
+SEM ÍNDICES:
+
+ Sort  (cost=657.48..661.41 rows=1575 width=395) (actual time=55.942..56.157 rows=6193 loops=1)
+   Sort Key: (GROUPING(pais_partida)) DESC, pais_partida, (GROUPING(pais_chegada)) DESC, pais_chegada, (GROUPING(cidade_partida)) DESC, cidade_partida, (GROUPING(cidade_chegada)) DESC, cidade_chegada, (GROUPING(ano)) DESC, (CASE WHEN (GROUPING(ano) = 0) THEN (ano)::text ELSE 'Global'::text END) DESC, (GROUPING(mes)) DESC, mes DESC, (GROUPING(dia_do_mes)) DESC, dia_do_mes DESC
+   Sort Method: quicksort  Memory: 1140kB
+   ->  MixedAggregate  (cost=0.00..573.84 rows=1575 width=395) (actual time=8.264..12.809 rows=6193 loops=1)
+         Hash Key: ano, mes, dia_do_mes, pais_partida, pais_chegada
+         Hash Key: ano, mes, dia_do_mes
+         Hash Key: ano, mes
+         Hash Key: ano
+         Hash Key: pais_partida, pais_chegada, ano, mes, cidade_partida, cidade_chegada
+         Hash Key: pais_partida, pais_chegada, ano, mes
+         Hash Key: pais_partida, pais_chegada, ano
+         Hash Key: pais_partida, pais_chegada
+         Hash Key: pais_partida, pais_chegada, cidade_partida, cidade_chegada, ano, mes, dia_do_mes
+         Hash Key: pais_partida, pais_chegada, cidade_partida, cidade_chegada, ano
+         Hash Key: pais_partida, pais_chegada, cidade_partida, cidade_chegada
+         Group Key: ()
+         Batches: 1  Memory Usage: 7073kB
+         ->  Seq Scan on estatisticas_voos  (cost=0.00..49.36 rows=1736 width=59) (actual time=0.006..0.163 rows=1736 loops=1)
+ Planning Time: 0.301 ms
+ Execution Time: 56.839 ms
+(20 rows)
+
+
+
+COM O ÍNDICE idx_localizacao:
+
+ Sort  (cost=786.23..790.16 rows=1575 width=395) (actual time=55.883..56.106 rows=6193 loops=1)
+   Sort Key: (GROUPING(pais_partida)) DESC, pais_partida, (GROUPING(pais_chegada)) DESC, pais_chegada, (GROUPING(cidade_partida)) DESC, cidade_partida, (GROUPING(cidade_chegada)) DESC, cidade_chegada, (GROUPING(ano)) DESC, (CASE WHEN (GROUPING(ano) = 0) THEN (ano)::text ELSE 'Global'::text END) DESC, (GROUPING(mes)) DESC, mes DESC, (GROUPING(dia_do_mes)) DESC, dia_do_mes DESC
+   Sort Method: quicksort  Memory: 1140kB
+   ->  MixedAggregate  (cost=0.28..702.58 rows=1575 width=395) (actual time=8.049..12.713 rows=6193 loops=1)
+         Hash Key: ano, mes, dia_do_mes, pais_partida, pais_chegada
+         Hash Key: ano, mes, dia_do_mes
+         Hash Key: ano, mes
+         Hash Key: ano
+         Hash Key: pais_partida, pais_chegada, ano, mes, cidade_partida, cidade_chegada
+         Hash Key: pais_partida, pais_chegada, ano, mes
+         Hash Key: pais_partida, pais_chegada, ano
+         Hash Key: pais_partida, pais_chegada
+         Hash Key: pais_partida, pais_chegada, cidade_partida, cidade_chegada, ano, mes, dia_do_mes
+         Hash Key: pais_partida, pais_chegada, cidade_partida, cidade_chegada, ano
+         Hash Key: pais_partida, pais_chegada, cidade_partida, cidade_chegada
+         Group Key: ()
+         Batches: 1  Memory Usage: 7073kB
+         ->  Index Scan using idx_localizacao on estatisticas_voos  (cost=0.28..178.11 rows=1736 width=59) (actual time=0.012..0.488 rows=1736 loops=1)
+ Planning Time: 0.280 ms
+ Execution Time: 56.792 ms
+(20 rows)
+
+### idx_no_serie + idx_hora_partida não fazem nada
+
+
+
+
+########################## 5.4 ##########################
+
+
+SEM ÍNDICES:
+
+ Sort  (cost=252.64..254.40 rows=704 width=248) (actual time=12.114..12.193 rows=2273 loops=1)
+   Sort Key: (GROUPING(pais_partida)) DESC, pais_partida, (GROUPING(pais_chegada)) DESC, pais_chegada, (GROUPING(cidade_partida)) DESC, cidade_partida, (GROUPING(cidade_chegada)) DESC, cidade_chegada, (GROUPING(dia_da_semana)) DESC, dia_da_semana
+   Sort Method: quicksort  Memory: 390kB
+   ->  MixedAggregate  (cost=0.00..219.34 rows=704 width=248) (actual time=2.420..3.527 rows=2273 loops=1)
+         Hash Key: dia_da_semana, pais_partida, pais_chegada, cidade_partida, cidade_chegada
+         Hash Key: dia_da_semana, pais_partida, pais_chegada
+         Hash Key: dia_da_semana
+         Hash Key: pais_partida, pais_chegada, cidade_partida, cidade_chegada
+         Hash Key: pais_partida, pais_chegada
+         Group Key: ()
+         Batches: 1  Memory Usage: 1221kB
+         ->  Seq Scan on estatisticas_voos  (cost=0.00..49.36 rows=1736 width=52) (actual time=0.005..0.133 rows=1736 loops=1)
+ Planning Time: 0.253 ms
+ Execution Time: 12.438 ms
+(14 rows)
+
+
+
+COM O ÍNDICE idx_localizacao:
+
+ Sort  (cost=381.39..383.15 rows=704 width=248) (actual time=12.476..12.553 rows=2273 loops=1)
+   Sort Key: (GROUPING(pais_partida)) DESC, pais_partida, (GROUPING(pais_chegada)) DESC, pais_chegada, (GROUPING(cidade_partida)) DESC, cidade_partida, (GROUPING(cidade_chegada)) DESC, cidade_chegada, (GROUPING(dia_da_semana)) DESC, dia_da_semana
+   Sort Method: quicksort  Memory: 390kB
+   ->  MixedAggregate  (cost=0.28..348.09 rows=704 width=248) (actual time=2.447..3.697 rows=2273 loops=1)
+         Hash Key: dia_da_semana, pais_partida, pais_chegada, cidade_partida, cidade_chegada
+         Hash Key: dia_da_semana, pais_partida, pais_chegada
+         Hash Key: dia_da_semana
+         Hash Key: pais_partida, pais_chegada, cidade_partida, cidade_chegada
+         Hash Key: pais_partida, pais_chegada
+         Group Key: ()
+         Batches: 1  Memory Usage: 1221kB
+         ->  Index Scan using idx_localizacao on estatisticas_voos  (cost=0.28..178.11 rows=1736 width=52) (actual time=0.011..0.415 rows=1736 loops=1)
+ Planning Time: 0.279 ms
+ Execution Time: 12.788 ms
+(14 rows)
