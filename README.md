@@ -1,7 +1,4 @@
-# NOTA FINAL 
-18.4 
-## ENTREGA 1
-17.2 
-## ENTREGA 2
-19.6 
+# NOTA FINAL - 18.4 
+## ENTREGA 1 - 17.2 
+## ENTREGA 2 - 19.6 
 
